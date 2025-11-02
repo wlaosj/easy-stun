@@ -1,0 +1,1439 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name      "easy-stun">
+<!ENTITY author    "隔壁小王">
+<!ENTITY version   "0.0.1">
+<!ENTITY launch    "Settings/EasyStun.Main">
+<!ENTITY sourceDir "/boot/config/plugins/easy-stun">
+<!ENTITY pluginURL "https://raw.githubusercontent.com/wlaosj/easy-stun/main/easy-stun.plg">
+<!ENTITY plgPATH   "/boot/config/plugins/&name;">
+<!ENTITY plgNAME   "&name;-&version;-x86_64">
+<!ENTITY emhttp    "/usr/local/emhttp/plugins/&name;">
+]>
+
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="https://t.me/+7jcTMePlNVwwZjg1" icon="icon-network">
+
+<CHANGES>
+0.0.1  初始版本发布
+【核心特性】
+- ⭐ 深度集成 Cloudflare：自动管理 DNS 记录和页面规则
+- ⭐ 无端口访问：通过 HTTPS 反向代理实现标准 443 端口访问
+- ⭐ 智能跳转：Cloudflare 页面规则自动重定向到动态端口
+- ⭐ 零配置 SSL：利用 Cloudflare 自动获取 HTTPS 证书
+- ⭐ 域名池管理：统一管理多个域名的 DNS 和页面规则
+
+【NAT 穿透】
+- 支持 STUN 协议获取公网映射地址
+- 支持 TCP/UDP 端口转发
+- 自动端口检测和 WAN 有效性验证
+- 连接保活机制，确保隧道稳定性
+- 网络异常自动检测和重连
+
+【管理功能】
+- 集成 Web 管理界面，支持实时状态监控
+- 支持多隧道实例管理
+- 支持开机自启动
+- 内置日志轮转机制（最大10MB，保留1个备份）
+- 支持自定义 Web 端口配置
+- 集成 Unraid 仪表板显示
+</CHANGES>
+
+<!-- pre-install: ensure clean run dir -->
+<FILE Run="/bin/bash">
+<INLINE>
+set -e
+rm -rf /usr/local/emhttp/plugins/easy-stun
+mkdir -p /usr/local/emhttp/plugins/easy-stun/scripts
+mkdir -p /boot/config/plugins/easy-stun
+</INLINE>
+</FILE>
+
+<!-- copy files from source directory -->
+<FILE Run="/bin/bash">
+<INLINE><![CDATA[
+set -e
+# 从源目录复制所有文件
+echo "正在创建目录结构..."
+
+# 停止正在运行的easy-stun服务（如果存在）
+echo "正在检查easy-stun服务状态..."
+# 使用最可靠的进程检测方法，完全避免grep干扰
+EASY_STUN_PIDS=$(ps -eo pid,comm,args | awk '$2 ~ /easy-stun$/ || $3 ~ /easy-stun$/ {print $1}' || true)
+if [ -n "$EASY_STUN_PIDS" ]; then
+  echo "  - 检测到easy-stun服务正在运行，正在停止..."
+  echo "$EASY_STUN_PIDS" | xargs kill 2>/dev/null || true
+  sleep 3
+  # 检查是否成功停止
+  EASY_STUN_PIDS=$(ps -eo pid,comm,args | awk '$2 ~ /easy-stun$/ || $3 ~ /easy-stun$/ {print $1}' || true)
+  if [ -n "$EASY_STUN_PIDS" ]; then
+    echo "  - 强制停止easy-stun服务..."
+    echo "$EASY_STUN_PIDS" | xargs kill -9 2>/dev/null || true
+    sleep 1
+  fi
+  echo "  ✓ easy-stun服务已停止"
+else
+  echo "  ✓ easy-stun服务未运行"
+fi
+
+# 创建必要的目录
+mkdir -p /usr/local/emhttp/plugins/easy-stun/scripts
+mkdir -p /boot/config/plugins/easy-stun
+mkdir -p /usr/local/bin
+
+# 从GitHub下载easy-stun二进制文件
+echo "  - 正在从GitHub下载easy-stun二进制文件..."
+BIN_URL="https://github.com/wlaosj/easy-stun/raw/refs/heads/main/easy-stun"
+TMP_BIN="/tmp/easy-stun-latest"
+
+# 添加超时和重试机制
+if timeout 60 wget --timeout=30 --tries=3 -q "$BIN_URL" -O "$TMP_BIN"; then
+  echo "  - 下载完成，正在安装..."
+  chmod +x "$TMP_BIN"
+  
+  # 双重存储：U盘持久化 + 内存系统PATH
+  cp -f "$TMP_BIN" /boot/config/plugins/easy-stun/easy-stun
+  cp -f "$TMP_BIN" /usr/local/bin/easy-stun
+  chmod +x /boot/config/plugins/easy-stun/easy-stun
+  chmod +x /usr/local/bin/easy-stun
+  
+  rm -f "$TMP_BIN"
+  echo "  ✓ easy-stun二进制文件已下载并安装（已保存到U盘和内存）"
+else
+  echo "  ⚠️ 下载easy-stun二进制文件失败，请检查网络连接"
+  echo "  - 下载URL: $BIN_URL"
+  echo "  - 临时文件: $TMP_BIN"
+  echo "  - 插件将安装但需要手动下载二进制文件"
+  # 清理临时文件
+  rm -f "$TMP_BIN"
+  
+  # 创建占位文件，避免启动时出错
+  touch /boot/config/plugins/easy-stun/easy-stun
+  touch /usr/local/bin/easy-stun
+  chmod +x /boot/config/plugins/easy-stun/easy-stun
+  chmod +x /usr/local/bin/easy-stun
+fi
+
+# 创建默认配置文件（仅当不存在时）
+CONF_DIR="/boot/config/plugins/easy-stun"
+DATA_DIR="$CONF_DIR/data"
+DEFAULT_CONF="$DATA_DIR/tunnels.json"
+DEFAULT_PORT="$CONF_DIR/port.conf"
+
+# 创建 data 目录（用于保存配置文件、证书等，日志除外）
+echo "  - 创建数据目录..."
+mkdir -p "$DATA_DIR"
+mkdir -p "$DATA_DIR/certs"
+echo "  ✓ 数据目录已创建: $DATA_DIR"
+
+echo "  - 检查默认配置文件..."
+if [ ! -f "$DEFAULT_CONF" ]; then
+  echo "  - 未发现tunnels.json，创建默认配置"
+  cat > "$DEFAULT_CONF" << 'EOF'
+{
+  "version": 1,
+  "tunnels": []
+}
+EOF
+else
+  echo "  ✓ 检测到已有tunnels.json，保持不变"
+fi
+
+# 创建端口配置文件（仅当不存在时）
+echo "  - 检查端口配置..."
+if [ ! -f "$DEFAULT_PORT" ]; then
+  echo "  - 未发现port.conf，写入默认端口 18888"
+  echo "18888" > "$DEFAULT_PORT"
+else
+  echo "  ✓ 检测到已有port.conf，保持不变"
+fi
+
+# 注意：easy-stun 使用内置日志轮转机制（-log-max-size, -log-max-backups, -log-max-age）
+# 无需额外的日志清理脚本，避免机制重复
+
+# 创建仪表板JavaScript文件
+echo "  - 正在创建仪表板JavaScript文件..."
+cat > "/usr/local/emhttp/plugins/easy-stun/scripts/easy-stun-dashboard.js" << 'EOF'
+/**
+ * Easy-Stun Dashboard JavaScript Functions
+ * 提供仪表板实时数据更新功能
+ */
+
+// 全局变量
+let easyStunDashboardInterval = null;
+let easyStunLastUpdate = 0;
+
+/**
+ * 刷新easy-stun仪表板数据
+ */
+function refreshEasyStunDashboard() {
+    const now = Date.now();
+    
+    // 防止过于频繁的请求（最小间隔1秒）
+    if (now - easyStunLastUpdate < 1000) {
+        return;
+    }
+    
+    easyStunLastUpdate = now;
+    
+    $.getJSON('/plugins/easy-stun/api.php?cmd=dashboard_status')
+        .done(function(data) {
+            updateEasyStunDashboard(data);
+        })
+        .fail(function(xhr, status, error) {
+            console.error('Failed to fetch easy-stun dashboard data:', error);
+            showEasyStunError();
+        });
+}
+
+/**
+ * 更新仪表板显示
+ * @param {Object} data - 从API获取的数据
+ */
+function updateEasyStunDashboard(data) {
+    if (!data) {
+        showEasyStunError();
+        return;
+    }
+    
+    // 更新状态显示
+    updateEasyStunStatus(data);
+    
+    // 更新版本信息
+    updateEasyStunVersion(data);
+    
+    // 更新服务状态
+    updateEasyStunService(data);
+    
+    // 更新隧道信息
+    updateEasyStunTunnels(data);
+    
+    // 更新内存使用信息
+    updateEasyStunMemory(data);
+    
+    // 更新运行时间信息
+    updateEasyStunUptime(data);
+}
+
+/**
+ * 更新easy-stun运行状态
+ * @param {Object} data - 数据对象
+ */
+function updateEasyStunStatus(data) {
+    const statusIcon = $('.easy-stun-status-icon');
+    const statusText = $('.easy-stun-status-text');
+    
+    // 移除所有状态类
+    statusIcon.removeClass('running stopped loading');
+    
+    if (data.running) {
+        statusIcon.addClass('running');
+        statusText.text(_('运行中'));
+    } else {
+        statusIcon.addClass('stopped');
+        statusText.text(_('已停止'));
+    }
+}
+
+/**
+ * 更新版本信息
+ * @param {Object} data - 数据对象
+ */
+function updateEasyStunVersion(data) {
+    const versionText = $('#easy-stun-version');
+    const version = data.version || _('未知');
+    versionText.text(_('版本: ') + version);
+}
+
+/**
+ * 更新服务状态
+ * @param {Object} data - 数据对象
+ */
+function updateEasyStunService(data) {
+    const serviceStatus = $('.easy-stun-service-status');
+    
+    if (data.running) {
+        serviceStatus.html('<span style="color:#28a745;font-weight:bold;">' + _('运行中') + '</span>');
+    } else {
+        serviceStatus.html('<span style="color:#dc3545;font-weight:bold;">' + _('已停止') + '</span>');
+    }
+}
+
+/**
+ * 更新隧道信息
+ * @param {Object} data - 数据对象
+ */
+function updateEasyStunTunnels(data) {
+    const tunnelInfo = $('.easy-stun-tunnel-info');
+    
+    if (data.tunnels && data.tunnels.length > 0) {
+        const runningTunnels = data.tunnels.filter(t => t.running).length;
+        tunnelInfo.html('<span style="color:#28a745;">' + runningTunnels + '/' + data.tunnels.length + ' 隧道运行中</span>');
+    } else {
+        tunnelInfo.html('<span style="color:#6c757d;">' + _('无隧道') + '</span>');
+    }
+}
+
+/**
+ * 更新内存使用信息
+ * @param {Object} data - 数据对象
+ */
+function updateEasyStunMemory(data) {
+    const memoryInfo = $('.easy-stun-memory-info');
+    
+    if (data.running && data.memory) {
+        memoryInfo.html('<span style="color:#17a2b8;">' + data.memory + '</span>');
+    } else {
+        memoryInfo.html('<span style="color:#6c757d;">' + _('未知') + '</span>');
+    }
+}
+
+/**
+ * 更新运行时间信息
+ * @param {Object} data - 数据对象
+ */
+function updateEasyStunUptime(data) {
+    const uptimeInfo = $('.easy-stun-uptime-info');
+    
+    if (data.running && data.uptime) {
+        uptimeInfo.html('<span style="color:#28a745;">' + data.uptime + '</span>');
+    } else {
+        uptimeInfo.html('<span style="color:#6c757d;">' + _('未知') + '</span>');
+    }
+}
+
+/**
+ * 显示错误状态
+ */
+function showEasyStunError() {
+    $('.easy-stun-status-icon').removeClass('running stopped').addClass('loading');
+    $('.easy-stun-status-text').text(_('状态: 错误'));
+    $('.easy-stun-service-status').text(_('错误'));
+    $('.easy-stun-tunnel-info').text(_('错误'));
+    $('.easy-stun-memory-info').text(_('错误'));
+    $('.easy-stun-uptime-info').text(_('错误'));
+}
+
+/**
+ * 启动自动刷新
+ * @param {number} interval - 刷新间隔（毫秒）
+ */
+function startEasyStunDashboardRefresh(interval = 5000) {
+    // 清除现有定时器
+    if (easyStunDashboardInterval) {
+        clearInterval(easyStunDashboardInterval);
+    }
+    
+    // 立即执行一次
+    refreshEasyStunDashboard();
+    
+    // 设置定时刷新
+    easyStunDashboardInterval = setInterval(refreshEasyStunDashboard, interval);
+}
+
+/**
+ * 停止自动刷新
+ */
+function stopEasyStunDashboardRefresh() {
+    if (easyStunDashboardInterval) {
+        clearInterval(easyStunDashboardInterval);
+        easyStunDashboardInterval = null;
+    }
+}
+
+// 页面加载完成后自动启动
+$(document).ready(function() {
+    // 检查是否在仪表板页面
+    if ($('#tblEasyStunDash').length > 0) {
+        startEasyStunDashboardRefresh(5000);
+    }
+});
+
+// 页面卸载时清理定时器
+$(window).on('beforeunload', function() {
+    stopEasyStunDashboardRefresh();
+});
+EOF
+
+chmod +x "/usr/local/emhttp/plugins/easy-stun/scripts/easy-stun-dashboard.js"
+echo "  ✓ 仪表板JavaScript文件已创建"
+
+echo "✓ 插件基础文件部署完成"
+]]></INLINE>
+</FILE>
+
+<!-- WebUI index -->
+<FILE Name="/usr/local/emhttp/plugins/easy-stun/index.php">
+<INLINE><![CDATA[
+<?php
+$baseRun = '/usr/local/emhttp/plugins/easy-stun';
+$scripts = $baseRun . '/scripts';
+$logFile = '/var/log/easy-stun.log';
+$confDir = '/boot/config/plugins/easy-stun';
+$dataDir = $confDir . '/data';
+$configFile = $dataDir . '/tunnels.json';
+$portFile = $confDir . '/port.conf';
+
+$cmd = isset($_POST['cmd']) ? $_POST['cmd'] : (isset($_GET['cmd']) ? $_GET['cmd'] : '');
+$msg = '';
+
+// 处理命令
+if ($cmd === 'start') {
+  $out = shell_exec("bash $scripts/start.sh 2>&1");
+  $msg = htmlspecialchars($out ?? '');
+}
+if ($cmd === 'stop') {
+  $out = shell_exec("bash $scripts/stop.sh 2>&1");
+  $msg = htmlspecialchars($out ?? '');
+}
+if ($cmd === 'restart') {
+  $out = shell_exec("bash $scripts/restart.sh 2>&1");
+  $msg = htmlspecialchars($out ?? '');
+}
+if ($cmd === 'clearlog') {
+  @file_put_contents($logFile, "");
+  $msg = '日志已清空';
+}
+if ($cmd === 'save_port') {
+  $port = $_POST['port'] ?? '';
+  if (is_numeric($port) && $port >= 1024 && $port <= 65535) {
+    if (@file_put_contents($portFile, $port) !== false) {
+      $msg = '端口配置已保存: ' . htmlspecialchars($port);
+    } else {
+      $msg = '端口配置保存失败';
+    }
+  } else {
+    $msg = '无效的端口号，请输入1024-65535之间的数字';
+  }
+}
+
+// 开机即启动（不依赖阵列）设置
+$bootFlag = '/boot/config/plugins/easy-stun/bootstart.enabled';
+if ($cmd === 'set_bootstart') {
+  $enable = ($_POST['enable'] ?? '') === '1';
+  $goPath = '/boot/config/go';
+  $begin = "# BEGIN easy-stun (do not edit)";
+  $end   = "# END easy-stun";
+  $block = $begin . "\n" .
+    "(\n" .
+    "cat <<'EOF' >/tmp/easy-stun-boot.sh\n" .
+    "#!/bin/bash\n" .
+    "FLAG=\"/boot/config/plugins/easy-stun/bootstart.enabled\"\n" .
+    "START_SH=\"/usr/local/emhttp/plugins/easy-stun/scripts/start.sh\"\n" .
+    "LOG=\"/var/log/easy-stun.log\"\n" .
+    "for i in \$(seq 1 15); do\n" .
+    "  if [ -x \"\$START_SH\" ]; then break; fi\n" .
+    "  sleep 1\n" .
+    "done\n" .
+    "if [ -f \"\$FLAG\" ] && [ -x \"\$START_SH\" ]; then\n" .
+    "  echo \"[easy-stun] boot detected, starting service...\" >> \"\$LOG\" 2>&1\n" .
+    "  bash \"\$START_SH\" >> \"\$LOG\" 2>&1 || true\n" .
+    "fi\n" .
+    "rm -f /tmp/easy-stun-boot.sh\n" .
+    "EOF\n" .
+    "bash /tmp/easy-stun-boot.sh &\n" .
+    ")\n" .
+    $end . "\n";
+
+  if ($enable) {
+    if (!is_dir(dirname($bootFlag))) @mkdir(dirname($bootFlag), 0777, true);
+    @file_put_contents($bootFlag, 'enabled');
+    $go = file_exists($goPath) ? @file_get_contents($goPath) : "";
+    if (strpos($go, $begin) !== false && strpos($go, $end) !== false) {
+      $pattern = sprintf('/%s[\s\S]*?%s\n?/m', preg_quote($begin, '/'), preg_quote($end, '/'));
+      $go = preg_replace($pattern, $block, $go, 1);
+    } else {
+      if ($go !== "" && substr($go, -1) !== "\n") $go .= "\n";
+      $go .= $block;
+    }
+    @file_put_contents($goPath, $go);
+    $msg = 'bootstart enabled (go injected)';
+  } else {
+    @unlink($bootFlag);
+    $go = file_exists($goPath) ? @file_get_contents($goPath) : "";
+    if ($go !== "") {
+      $pattern = sprintf('/%s[\s\S]*?%s\n?/m', preg_quote($begin, '/'), preg_quote($end, '/'));
+      $newGo = preg_replace($pattern, '', $go, 1);
+      if ($newGo !== null) @file_put_contents($goPath, $newGo);
+    }
+    $msg = 'bootstart disabled (go cleaned)';
+  }
+}
+// 检查标志文件是否存在，以确定复选框的初始状态
+$bootstartOn = file_exists($bootFlag);
+
+$status = shell_exec("bash $scripts/status.sh 2>&1");
+$version = shell_exec("bash $scripts/version.sh 2>&1");
+$logTail = file_exists($logFile) ? trim(shell_exec("tail -n 200 $logFile 2>&1")) : '';
+
+// 获取日志文件信息
+$logSize = file_exists($logFile) ? filesize($logFile) : 0;
+$logSizeFormatted = formatBytes($logSize);
+$logLines = file_exists($logFile) ? count(file($logFile)) : 0;
+
+function formatBytes($size, $precision = 2) {
+    $units = array('B', 'KB', 'MB', 'GB', 'TB');
+    for ($i = 0; $size > 1024 && $i < count($units) - 1; $i++) {
+        $size /= 1024;
+    }
+    return round($size, $precision) . ' ' . $units[$i];
+}
+
+// 读取当前端口配置
+$currentPort = '18888';
+if (file_exists($portFile)) {
+  $portContent = @file_get_contents($portFile);
+  if ($portContent && is_numeric(trim($portContent))) {
+    $portNum = intval(trim($portContent));
+    if ($portNum >= 1024 && $portNum <= 65535) {
+      $currentPort = strval($portNum);
+    }
+  }
+}
+
+// 检查安装状态
+$installStatus = '';
+$binExists = file_exists('/usr/local/bin/easy-stun');
+$configExists = file_exists($configFile);
+
+if (!$binExists) {
+  $installStatus = '<div class="error">❌ 缺少二进制文件，请先编译 easy-stun 项目</div>';
+} elseif (!$configExists) {
+  $installStatus = '<div class="success">💡 配置文件已创建，可以开始使用</div>';
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Easy-Stun</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;margin:16px;color:#222}
+.card{border:1px solid #ddd;border-radius:8px;padding:16px;margin-bottom:16px}
+pre{background:#f7f7f7;border:1px solid #eee;border-radius:6px;padding:10px;max-height:360px;overflow:auto}
+button{padding:8px 14px;margin-right:8px;cursor:pointer}
+.warning{background:#fff3cd;border:1px solid #ffeaa7;color:#856404;padding:12px;border-radius:6px;margin-bottom:16px}
+.error{color:#dc3545;margin:4px 0;font-size:14px}
+.success{color:#28a745;margin:4px 0;font-size:14px}
+</style>
+<script>
+function executeAction(action) {
+  // 使用GET参数直接跳转
+  var url = new URL(window.location);
+  url.searchParams.set('cmd', action);
+  window.location.href = url.toString();
+}
+
+function openWebUI() {
+  // 获取当前页面的主机名
+  var currentHostname = window.location.hostname;
+  // 从页面中获取配置的端口
+  var portInput = document.getElementById('web-port');
+  var webPort = portInput ? portInput.value : '18888';
+  // 构建WebUI URL
+  var webUIUrl = 'http://' + currentHostname + ':' + webPort + '/';
+  // 在新标签页中打开WebUI
+  window.open(webUIUrl, '_blank');
+}
+</script>
+</head>
+<body>
+<h2 style="display:inline;">Easy-Stun NAT穿透管理</h2>
+<div style="display:inline-block;margin-left:12px;vertical-align:middle;">
+  <a href="https://t.me/+7jcTMePlNVwwZjg1" target="_blank" style="display:inline-block;background:#0088cc;color:white;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:bold;font-size:12px;margin-right:8px;">
+    💬 Telegram
+  </a>
+  <span style="font-size:12px;color:#6c757d;">
+    Easy-Stun 插件 | 作者：隔壁小王 | 功能：NAT穿透与端口暴露
+  </span>
+</div>
+<?php if ($installStatus) { echo $installStatus; } ?>
+<div class="card">
+  <div>
+    <b>运行状态：</b>
+    <?php
+      $statusText = trim($status ?? 'unknown');
+      if (strpos($statusText, 'running') !== false) {
+        $pid = '';
+        if (preg_match('/pid=(\d+)/', $statusText, $matches)) { $pid = ' (进程ID: ' . $matches[1] . ')'; }
+        echo '<span style="color:#28a745;font-weight:bold;">🟢 运行中' . $pid . '</span>';
+      } elseif (strpos($statusText, 'stopped') !== false) {
+        echo '<span style="color:#dc3545;font-weight:bold;">🔴 已停止</span>';
+      } else {
+        echo '<span style="color:#6c757d;">⚪ ' . htmlspecialchars($statusText) . '</span>';
+      }
+    ?>
+  </div>
+
+  <div style="margin-top:8px">
+    <b>核心：</b>
+    <?php if ($binExists): ?>
+      <span style="color:#28a745">已安装</span> | 版本：<?= htmlspecialchars(trim($version ?? 'unknown')) ?>
+    <?php else: ?>
+      <span style="color:#dc3545">未安装</span> | 请先编译 easy-stun 项目
+    <?php endif; ?>
+  </div>
+
+  <div style="margin-top:6px">
+    <b>Web管理界面：</b>
+    <button onclick="openWebUI()">打开WebUI</button>
+    <span style="margin-left:8px;color:#6c757d;">
+      提供完整的隧道管理功能
+    </span>
+  </div>
+
+  <div style="margin-top:8px">
+    <b>Web端口配置：</b>
+    <form method="POST" style="display:inline-block;margin:0 8px;vertical-align:middle">
+      <input type="hidden" name="cmd" value="save_port" />
+      <input type="number" id="web-port" name="port" value="<?= htmlspecialchars($currentPort) ?>" min="1024" max="65535" style="width:80px;padding:4px;border:1px solid #ddd;border-radius:3px;" />
+      <button type="submit" style="margin-left:4px;padding:4px 8px;background:#007bff;color:white;border:none;border-radius:3px;cursor:pointer;">保存</button>
+    </form>
+    <span style="color:#6c757d;">
+      当前端口: <?= htmlspecialchars($currentPort) ?> | 范围: 1024-65535
+    </span>
+  </div>
+
+  <div style="margin-top:8px">
+    <b>日志：</b> 文件大小: <?= $logSizeFormatted ?> | 总行数: <?= $logLines ?> 行 | 自动轮转: 最大10MB, 保留1个备份
+    <button onclick="executeAction('clearlog')" style="margin-left:8px;background:#17a2b8;color:white;border:none;padding:4px 8px;border-radius:3px;cursor:pointer;">
+      <i class="fa fa-eye"></i> 清空日志
+    </button>
+  </div>
+
+  <div style="margin-top:10px">
+    <button onclick="executeAction('start')">启动</button>
+    <button onclick="executeAction('stop')">停止</button>
+    <button onclick="executeAction('restart')">重启服务</button>
+  </div>
+
+  <div style="margin-top:8px">
+    <b>开机启动：</b>
+    <form method="POST" style="display:inline-block;margin:0 8px;vertical-align:middle">
+      <input type="hidden" name="cmd" value="set_bootstart" />
+      <label>
+        <input type="checkbox" name="enable" value="1" <?= $bootstartOn ? 'checked' : '' ?> onchange="this.form.submit()" />
+        开机自动启动 Easy-Stun
+      </label>
+    </form>
+    <span style="color:#6c757d">
+      <?= $bootstartOn ? '✅ 已启用' : '❌ 未启用' ?>
+    </span>
+  </div>
+</div>
+
+<?php if ($logTail): ?>
+<div class="card">
+  <h3>最近日志</h3>
+  <pre><?= htmlspecialchars($logTail) ?></pre>
+</div>
+<?php endif; ?>
+
+<?php if ($msg): ?>
+<div class="card">
+  <h3>操作结果</h3>
+  <pre><?= htmlspecialchars($msg) ?></pre>
+</div>
+<?php endif; ?>
+
+</body>
+</html>
+]]></INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/easy-stun/api.php">
+<INLINE><![CDATA[
+<?php
+// 轻量 API：纯文本返回，避免 emhttp 外层 HTML 包装
+header('Content-Type: text/plain; charset=utf-8');
+
+$baseRun = '/usr/local/emhttp/plugins/easy-stun';
+$scripts = $baseRun . '/scripts';
+$portFile = '/boot/config/plugins/easy-stun/port.conf';
+
+$cmd = $_GET['cmd'] ?? $_POST['cmd'] ?? '';
+if ($cmd === 'dashboard_status') {
+  // 返回JSON格式的仪表板数据
+  header('Content-Type: application/json; charset=utf-8');
+  
+  // 获取easy-stun状态
+  $status = shell_exec("bash $scripts/status.sh 2>&1");
+  $version = shell_exec("bash $scripts/version.sh 2>&1");
+  
+  $isRunning = strpos($status, 'running') !== false;
+  $pid = '';
+  if (preg_match('/pid=(\d+)/', $status, $matches)) {
+    $pid = $matches[1];
+  }
+  
+  // 获取内存使用信息
+  $memoryUsage = '0 MB';
+  if ($pid) {
+    $memoryInfo = shell_exec("ps -o rss= -p $pid 2>/dev/null");
+    if ($memoryInfo) {
+      $memoryKB = intval(trim($memoryInfo));
+      $memoryMB = round($memoryKB / 1024, 1);
+      $memoryUsage = $memoryMB . ' MB';
+    }
+  }
+  
+  // 获取运行时间信息
+  $uptime = '未知';
+  if ($pid) {
+    $startTime = shell_exec("ps -o lstart= -p $pid 2>/dev/null");
+    if ($startTime) {
+      $startTimestamp = strtotime(trim($startTime));
+      if ($startTimestamp) {
+        $currentTime = time();
+        $diff = $currentTime - $startTimestamp;
+        
+        $hours = floor($diff / 3600);
+        $minutes = floor(($diff % 3600) / 60);
+        
+        if ($hours > 0) {
+          $uptime = $hours . 'h' . $minutes . 'm';
+        } else {
+          $uptime = $minutes . 'm';
+        }
+      }
+    }
+  }
+  
+  // 获取端口配置（先于隧道信息，便于尝试读取内置API）
+  $port = '18888';
+  if (file_exists($portFile)) {
+    $portContent = @file_get_contents($portFile);
+    if ($portContent && is_numeric(trim($portContent))) {
+      $portNum = intval(trim($portContent));
+      if ($portNum >= 1024 && $portNum <= 65535) {
+        $port = strval($portNum);
+      }
+    }
+  }
+
+  // 获取隧道信息（优先实时API，其次本地配置）
+  $tunnels = [];
+  $configFile = '/boot/config/plugins/easy-stun/data/tunnels.json';
+  $usedRealtime = false;
+  if ($isRunning) {
+    $apiUrl = 'http://127.0.0.1:' . $port . '/api/tunnels';
+    $ctx = stream_context_create(['http' => ['timeout' => 1]]); // 1秒超时
+    $resp = @file_get_contents($apiUrl, false, $ctx);
+    if ($resp) {
+      $apiData = json_decode($resp, true);
+      if (is_array($apiData)) {
+        // 兼容两种返回：{tunnels:[...]} 或 直接数组 [...]
+        if (isset($apiData['tunnels']) && is_array($apiData['tunnels'])) {
+          $tunnels = $apiData['tunnels'];
+          $usedRealtime = true;
+        } elseif (array_keys($apiData) === range(0, count($apiData) - 1)) {
+          $tunnels = $apiData; // 直接数组
+          $usedRealtime = true;
+        }
+      }
+    }
+  }
+  if (!$usedRealtime && file_exists($configFile)) {
+    $configData = json_decode(@file_get_contents($configFile), true);
+    $tunnels = $configData['tunnels'] ?? [];
+  }
+
+  // 统一规范化运行状态字段为小写 running，便于前端统计（带启发式）
+  if (is_array($tunnels)) {
+    foreach ($tunnels as $i => $t) {
+      $run = false;
+      if (is_array($t)) {
+        if (isset($t['running'])) {
+          $run = (bool)$t['running'];
+        } elseif (isset($t['Running'])) {
+          $run = (bool)$t['Running'];
+        } elseif (isset($t['status'])) {
+          $run = (string)$t['status'] === 'running';
+        } elseif (!empty($t['outerAddr'])) {
+          // 若存在 outerAddr，近似认为该隧道已建立
+          $run = true;
+        }
+        // 若隧道被禁用，则视为未运行
+        if (isset($t['enabled']) && !$t['enabled']) { $run = false; }
+        $t['running'] = $run;
+        // 移除可能的大小写重复键，避免前端困惑
+        unset($t['Running']);
+        $tunnels[$i] = $t;
+      }
+    }
+  }
+  
+  $result = [
+    'running' => $isRunning,
+    'status' => trim($status),
+    'version' => trim($version),
+    'pid' => $pid,
+    'memory' => $memoryUsage,
+    'uptime' => $uptime,
+    'tunnels' => $tunnels,
+    'port' => $port
+  ];
+  
+  echo json_encode($result);
+  exit;
+}
+if ($cmd === 'start') {
+  $out = shell_exec("bash $scripts/start.sh 2>&1");
+  echo htmlspecialchars($out ?? '');
+  exit;
+}
+if ($cmd === 'stop') {
+  $out = shell_exec("bash $scripts/stop.sh 2>&1");
+  echo htmlspecialchars($out ?? '');
+  exit;
+}
+if ($cmd === 'restart') {
+  $out = shell_exec("bash $scripts/restart.sh 2>&1");
+  echo htmlspecialchars($out ?? '');
+  exit;
+}
+echo 'unknown command';
+]]></INLINE>
+</FILE>
+
+<!-- scripts -->
+<FILE Name="/usr/local/emhttp/plugins/easy-stun/scripts/start.sh" Mode="0755">
+<INLINE><![CDATA[
+#!/bin/bash
+set -e
+BIN="/usr/local/bin/easy-stun"
+CONF_DIR="/boot/config/plugins/easy-stun"
+DATA_DIR="$CONF_DIR/data"
+CONFIG_FILE="$DATA_DIR/tunnels.json"
+PORT_FILE="$CONF_DIR/port.conf"
+LOG_FILE="/var/log/easy-stun.log"
+PID_FILE="/var/run/easy-stun.pid"
+
+# 读取端口配置
+WEB_PORT="18888"
+if [ -f "$PORT_FILE" ]; then
+  WEB_PORT=$(cat "$PORT_FILE" 2>/dev/null | tr -d '\n\r' || echo "18888")
+  # 验证端口号
+  if ! [[ "$WEB_PORT" =~ ^[0-9]+$ ]] || [ "$WEB_PORT" -lt 1024 ] || [ "$WEB_PORT" -gt 65535 ]; then
+    echo "无效的端口号: $WEB_PORT，使用默认端口 18888" >> "$LOG_FILE" 2>&1
+    WEB_PORT="18888"
+  fi
+fi
+
+# 防重复启动检查（必须在最前面）
+if [ -f "$PID_FILE" ]; then
+  PID=$(cat "$PID_FILE" 2>/dev/null || true)
+  if [ -n "$PID" ] && ps -p "$PID" >/dev/null 2>&1; then
+    echo "running (pid $PID)"
+    exit 0
+  fi
+fi
+
+# 检查并恢复核心文件（重启后内存文件丢失）
+if [ ! -f "$BIN" ] || [ ! -s "$BIN" ]; then
+  UDISK_BIN="/boot/config/plugins/easy-stun/easy-stun"
+  if [ -f "$UDISK_BIN" ] && [ -s "$UDISK_BIN" ]; then
+    echo "检测到核心文件缺失，从U盘恢复..." >> "$LOG_FILE" 2>&1
+    mkdir -p /usr/local/bin
+    cp -f "$UDISK_BIN" "$BIN"
+    chmod +x "$BIN"
+    echo "核心文件已从U盘恢复到内存" >> "$LOG_FILE" 2>&1
+  else
+    echo "二进制文件缺失或为空: $BIN" >> "$LOG_FILE" 2>&1
+    echo "二进制文件缺失或为空: $BIN"
+    echo "请手动下载 easy-stun 二进制文件到: $UDISK_BIN"
+    echo "下载地址: https://github.com/wlaosj/easy-stun/raw/refs/heads/main/easy-stun"
+    exit 1
+  fi
+fi
+
+if [ ! -x "$BIN" ]; then
+  echo "二进制不可执行: $BIN" >&2
+  exit 1
+fi
+
+# 确保数据目录存在
+mkdir -p "$DATA_DIR"
+mkdir -p "$DATA_DIR/certs"
+
+# 检查配置文件
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "配置文件缺失: $CONFIG_FILE" >&2
+  exit 1
+fi
+
+# 后台启动（使用绝对路径，无需切换工作目录）
+# 使用新版本的参数系统：
+# -data-dir: 统一数据目录（包含所有配置文件）
+# -log-file: 日志文件路径（内存中，保护U盘，内置日志轮转）
+# -log-level: 日志级别（支持 info/INFO，不区分大小写）
+# -log-max-size: 日志文件最大大小（MB）
+# -log-max-backups: 日志文件最大备份数
+# -log-max-age: 日志文件最大保存天数
+# 注意：使用 -log-file 参数后，程序内部管理日志，无需重定向
+nohup "$BIN" \
+  -web \
+  -web-addr "0.0.0.0:$WEB_PORT" \
+  -data-dir "$DATA_DIR" \
+  -log-file "$LOG_FILE" \
+  -log-level info \
+  -log-max-size 10 \
+  -log-max-backups 1 \
+  -log-max-age 7 \
+  > /dev/null 2>&1 &
+NEWPID=$!
+echo $NEWPID > "$PID_FILE"
+sleep 1
+
+if ps -p "$NEWPID" >/dev/null 2>&1; then
+  echo "started (pid $NEWPID)"
+  exit 0
+else
+  echo "start failed, see $LOG_FILE" >&2
+  exit 1
+fi
+]]></INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/easy-stun/scripts/stop.sh" Mode="0755">
+<INLINE><![CDATA[
+#!/bin/bash
+set -e
+PID_FILE="/var/run/easy-stun.pid"
+
+# 优先按 pidfile 停止
+if [ -f "$PID_FILE" ]; then
+  PID=$(cat "$PID_FILE" 2>/dev/null || true)
+  if [ -n "$PID" ] && ps -p "$PID" >/dev/null 2>&1; then
+    kill "$PID" 2>/dev/null || true
+  fi
+fi
+
+# 兜底按进程名停止
+EASY_STUN_PIDS=$(ps -eo pid,comm,args | awk '$2 ~ /easy-stun$/ || $3 ~ /easy-stun$/ {print $1}' || true)
+if [ -n "$EASY_STUN_PIDS" ]; then
+  # 等待优雅退出
+  for i in $(seq 1 5); do
+    EASY_STUN_PIDS=$(ps -eo pid,comm,args | awk '$2 ~ /easy-stun$/ || $3 ~ /easy-stun$/ {print $1}' || true)
+    if [ -n "$EASY_STUN_PIDS" ]; then
+      sleep 1
+    else
+      break
+    fi
+  done
+  # 仍存活则强杀
+  EASY_STUN_PIDS=$(ps -eo pid,comm,args | awk '$2 ~ /easy-stun$/ || $3 ~ /easy-stun$/ {print $1}' || true)
+  if [ -n "$EASY_STUN_PIDS" ]; then
+    echo "$EASY_STUN_PIDS" | xargs kill -9 2>/dev/null || true
+  fi
+fi
+
+# 清理 pidfile（若进程已不存在）
+if [ -f "$PID_FILE" ]; then
+  if ! ps -p $(cat "$PID_FILE" 2>/dev/null || echo 0) >/dev/null 2>&1; then
+    rm -f "$PID_FILE"
+  fi
+fi
+
+echo "stopped"
+]]></INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/easy-stun/scripts/restart.sh" Mode="0755">
+<INLINE><![CDATA[
+#!/bin/bash
+set -e
+SCRIPT_DIR="/usr/local/emhttp/plugins/easy-stun/scripts"
+
+bash "$SCRIPT_DIR/stop.sh" || true
+sleep 1
+bash "$SCRIPT_DIR/start.sh"
+]]></INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/easy-stun/scripts/status.sh" Mode="0755">
+<INLINE><![CDATA[
+#!/bin/bash
+set -e
+PID_FILE="/var/run/easy-stun.pid"
+STATUS="stopped"; PID=""
+EASY_STUN_PIDS=$(ps -eo pid,comm,args | awk '$2 ~ /easy-stun$/ || $3 ~ /easy-stun$/ {print $1}' || true)
+if [ -n "$EASY_STUN_PIDS" ]; then 
+  STATUS="running"
+  PID=$(echo "$EASY_STUN_PIDS" | head -n1)
+fi
+echo "status=$STATUS pid=$PID"
+]]></INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/easy-stun/scripts/version.sh" Mode="0755">
+<INLINE><![CDATA[
+#!/bin/bash
+set -e
+BIN="/usr/local/bin/easy-stun"
+if [ -f "$BIN" ]; then 
+  # 尝试获取版本信息（容错处理）
+  OUT=$("$BIN" -version 2>&1 || true)
+  if echo "$OUT" | grep -qi "flag provided but not defined"; then
+    echo "unknown"
+  elif [ -n "$OUT" ]; then
+    echo "$OUT" | head -n 1
+  else
+    echo "unknown"
+  fi
+else 
+  echo "binary missing"
+fi
+]]></INLINE>
+</FILE>
+
+<!-- Main page content -->
+<FILE Name="/usr/local/emhttp/plugins/easy-stun/EasyStun.Main.page">
+<INLINE><![CDATA[
+Menu="Utilities"
+Type="xmenu"
+Title="Easy-Stun"
+Icon="icon-network"
+Tabs="false"
+---
+<?php
+include '/usr/local/emhttp/plugins/easy-stun/index.php';
+?>
+]]></INLINE>
+</FILE>
+
+<!-- Dashboard page content -->
+<FILE Name="/usr/local/emhttp/plugins/easy-stun/EasyStun.Dashboard.page">
+<INLINE><![CDATA[
+Menu="Dashboard:0"
+Icon="icon-network"
+---
+<?php
+require_once('/usr/local/emhttp/plugins/dynamix/include/Wrappers.php');
+$pluginname = "easy-stun";
+
+// 获取easy-stun状态
+function getEasyStunStatus() {
+    $status = shell_exec("bash /usr/local/emhttp/plugins/easy-stun/scripts/status.sh 2>&1");
+    $version = shell_exec("bash /usr/local/emhttp/plugins/easy-stun/scripts/version.sh 2>&1");
+    
+    $isRunning = strpos($status, 'running') !== false;
+    $pid = '';
+    if (preg_match('/pid=(\d+)/', $status, $matches)) {
+        $pid = $matches[1];
+    }
+    
+    return [
+        'running' => $isRunning,
+        'status' => trim($status),
+        'version' => trim($version),
+        'pid' => $pid
+    ];
+}
+
+// 获取隧道信息
+function getEasyStunTunnels() {
+    $configFile = '/boot/config/plugins/easy-stun/data/tunnels.json';
+    if (file_exists($configFile)) {
+        $configData = json_decode(file_get_contents($configFile), true);
+        return $configData['tunnels'] ?? [];
+    }
+    return [];
+}
+
+$easyStunStatus = getEasyStunStatus();
+$tunnels = getEasyStunTunnels();
+
+// 创建仪表板瓦片
+$mytiles[$pluginname]['column1'] =
+<<<EOT
+<tbody id="tblEasyStunDash" title="_(Easy-Stun NAT穿透状态)_">
+<tr>
+    <td>
+        <span class='tile-header'>
+        <span class='tile-header-left'>
+            <i class='icon-network f32'></i>
+            <div class='section'>
+                <span class='easy-stun-status'>
+                    <i class='fa fa-circle easy-stun-status-icon'></i>
+                    <span class='easy-stun-status-text'>_(状态: 加载中...)_</span>
+                </span>
+                <span class='easy-stun-version' id='easy-stun-version'>_(版本: 加载中...)_</span>
+            </div>
+        </span>
+        <span class='tile-header-right'>
+            <span class='tile-header-right-controls'>
+            <a href="/Settings/EasyStun.Main" title="_(前往 Easy-Stun 设置)_">
+                <i class="fa fa-fw fa-cog control"></i>
+            </a>
+            </span>
+        </span>
+        </span>
+    </td>
+</tr>
+<tr class="header"><td><span class="w25">_(运行状态)_</span><span class="w25">_(隧道信息)_</span><span class="w25">_(内存使用)_</span><span class="w25">_(运行时间)_</span></td></tr>
+<tr class="updated">
+    <td>
+        <span class="w25">
+            <span class="easy-stun-service-status">_(加载中...)_</span>
+        </span>
+        <span class="w25">
+            <span class="easy-stun-tunnel-info">_(加载中...)_</span>
+        </span>
+        <span class="w25">
+            <span class="easy-stun-memory-info">_(加载中...)_</span>
+        </span>
+        <span class="w25">
+            <span class="easy-stun-uptime-info">_(加载中...)_</span>
+        </span>
+    </td>
+</tr>
+<tr class="updated">
+    <td>
+        <span class="w25">
+            <button class="easy-stun-btn easy-stun-btn-start" onclick="easyStunAction('start')" title="_(启动 Easy-Stun 服务)_">
+                <i class="fa fa-play"></i> _(启动)_
+            </button>
+        </span>
+        <span class="w25">
+            <button class="easy-stun-btn easy-stun-btn-restart" onclick="easyStunAction('restart')" title="_(重启 Easy-Stun 服务)_">
+                <i class="fa fa-refresh"></i> _(重启)_
+            </button>
+        </span>
+        <span class="w25">
+            <button class="easy-stun-btn easy-stun-btn-stop" onclick="easyStunAction('stop')" title="_(停止 Easy-Stun 服务)_">
+                <i class="fa fa-stop"></i> _(停止)_
+            </button>
+        </span>
+        <span class="w25">
+            <button class="easy-stun-btn easy-stun-btn-ui" onclick="easyStunAction('ui')" title="_(打开 Easy-Stun 管理界面)_">
+                <i class="fa fa-external-link"></i> _(打开UI)_
+            </button>
+        </span>
+    </td>
+</tr>
+<tr><td><span></span></td></tr>
+</tbody>
+EOT;
+
+?>
+<style type="text/css">
+.easy-stun-status {
+    display: inline-block;
+    margin-right: 10px;
+}
+
+.easy-stun-status-icon {
+    margin-right: 5px;
+}
+
+.easy-stun-status-icon.running {
+    color: #28a745;
+}
+
+.easy-stun-status-icon.stopped {
+    color: #dc3545;
+}
+
+.easy-stun-status-icon.loading {
+    color: #6c757d;
+}
+
+.easy-stun-version {
+    display: block;
+    font-size: 12px;
+    color: #6c757d;
+    margin-top: 2px;
+}
+
+.easy-stun-service-status {
+    font-weight: bold;
+}
+
+.easy-stun-tunnel-info {
+    font-size: 12px;
+    color: #6c757d;
+}
+
+.easy-stun-memory-info {
+    font-size: 12px;
+    color: #6c757d;
+    font-weight: bold;
+}
+
+.easy-stun-uptime-info {
+    font-size: 12px;
+    color: #6c757d;
+    font-weight: bold;
+}
+
+/* 确保4列等宽对齐 */
+.w25 {
+    width: 25% !important;
+    display: inline-block;
+    text-align: center;
+    vertical-align: top;
+    box-sizing: border-box;
+    padding: 0 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 按钮样式 */
+.easy-stun-btn {
+    background: #2c3e50;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: bold;
+    transition: all 0.3s ease;
+    width: 100%;
+    max-width: 80px;
+    margin: 2px;
+}
+
+.easy-stun-btn:hover {
+    opacity: 0.8;
+    transform: translateY(-1px);
+}
+
+.easy-stun-btn:active {
+    transform: translateY(0);
+}
+
+.easy-stun-btn i {
+    margin-right: 4px;
+}
+
+.easy-stun-btn-start {
+    background: #28a745;
+}
+
+.easy-stun-btn-restart {
+    background: #ffc107;
+    color: #212529;
+}
+
+.easy-stun-btn-stop {
+    background: #dc3545;
+}
+
+.easy-stun-btn-ui {
+    background: #17a2b8;
+}
+
+</style>
+
+<script type="text/javascript" src="/plugins/easy-stun/scripts/easy-stun-dashboard.js"></script>
+<script type="text/javascript">
+function refreshEasyStunDashboard() {
+    $.getJSON('/plugins/easy-stun/api.php?cmd=dashboard_status', function(data) {
+        if (data) {
+            // 保存API数据到全局变量，供其他函数使用
+            window.easyStunLastData = data;
+            
+            // 更新状态显示
+            var statusIcon = $('.easy-stun-status-icon');
+            var statusText = $('.easy-stun-status-text');
+            var versionText = $('#easy-stun-version');
+            var serviceStatus = $('.easy-stun-service-status');
+            var tunnelInfo = $('.easy-stun-tunnel-info');
+            var memoryInfo = $('.easy-stun-memory-info');
+            var uptimeInfo = $('.easy-stun-uptime-info');
+            
+            // 状态图标和文本
+            statusIcon.removeClass('running stopped loading').addClass(data.running ? 'running' : 'stopped');
+            statusText.text(data.running ? _('运行中') : _('已停止'));
+            
+            // 顶部版本信息
+            versionText.text(_('版本: ') + (data.version || _('未知')));
+            
+            // 运行状态
+            if (data.running) {
+                serviceStatus.html('<span style="color:#28a745;font-weight:bold;">' + _('运行中') + '</span>');
+            } else {
+                serviceStatus.html('<span style="color:#dc3545;font-weight:bold;">' + _('已停止') + '</span>');
+            }
+            
+            // 隧道信息
+            if (data.tunnels && data.tunnels.length > 0) {
+                var runningTunnels = data.tunnels.filter(t => t.running).length;
+                tunnelInfo.html('<span style="color:#28a745;">' + runningTunnels + '/' + data.tunnels.length + ' 隧道运行中</span>');
+            } else {
+                tunnelInfo.html('<span style="color:#6c757d;">' + _('无隧道') + '</span>');
+            }
+            
+            // 内存使用信息
+            if (data.running && data.memory) {
+                memoryInfo.html('<span style="color:#17a2b8;">' + data.memory + '</span>');
+            } else {
+                memoryInfo.html('<span style="color:#6c757d;">' + _('未知') + '</span>');
+            }
+            
+            // 运行时间信息
+            if (data.running && data.uptime) {
+                uptimeInfo.html('<span style="color:#28a745;">' + data.uptime + '</span>');
+            } else {
+                uptimeInfo.html('<span style="color:#6c757d;">' + _('未知') + '</span>');
+            }
+        }
+    }).fail(function() {
+        // 更新失败时的显示
+        $('.easy-stun-status-icon').removeClass('running stopped').addClass('loading');
+        $('.easy-stun-status-text').text(_('状态: 错误'));
+        $('.easy-stun-service-status').text(_('错误'));
+        $('.easy-stun-tunnel-info').text(_('错误'));
+        $('.easy-stun-memory-info').text(_('错误'));
+        $('.easy-stun-uptime-info').text(_('错误'));
+    });
+}
+
+// 按钮操作函数
+function easyStunAction(action) {
+    switch(action) {
+        case 'start':
+        case 'stop':
+        case 'restart':
+            // 静默处理操作，不跳转页面
+            var actionText = '';
+            switch(action) {
+                case 'start': actionText = _('启动'); break;
+                case 'stop': actionText = _('停止'); break;
+                case 'restart': actionText = _('重启'); break;
+            }
+            
+            // 显示操作状态
+            $('.easy-stun-status-text').text(_('状态: ') + actionText + _('中...'));
+            $('.easy-stun-status-icon').removeClass('running stopped').addClass('loading');
+            
+            // 发送操作请求
+            $.get('/plugins/easy-stun/api.php?cmd=' + action, function(response) {
+                // 操作完成后刷新状态
+                setTimeout(function() {
+                    refreshEasyStunDashboard();
+                }, 1000);
+            }).fail(function() {
+                // 操作失败时显示错误
+                $('.easy-stun-status-text').text(_('状态: 操作失败'));
+                $('.easy-stun-status-icon').removeClass('running stopped loading').addClass('stopped');
+            });
+            break;
+        case 'ui':
+            // 打开WebUI
+            var currentHostname = window.location.hostname;
+            // 从API数据中获取端口信息，如果没有则使用默认端口
+            var port = '18888';
+            if (window.easyStunLastData && window.easyStunLastData.port) {
+                port = window.easyStunLastData.port;
+            }
+            var webUIUrl = 'http://' + currentHostname + ':' + port + '/';
+            window.open(webUIUrl, '_blank');
+            break;
+    }
+}
+
+// 页面加载时立即刷新一次
+$(document).ready(function() {
+    refreshEasyStunDashboard();
+    
+    // 每5秒刷新一次
+    setInterval(refreshEasyStunDashboard, 5000);
+});
+</script>
+]]></INLINE>
+</FILE>
+
+<!-- post-install: setup menu entry -->
+<FILE Run="/bin/bash">
+<INLINE>
+set -e
+echo "Easy-Stun plugin installed. Persistent path: /boot/config/plugins/easy-stun"
+</INLINE>
+</FILE>
+
+<!-- version cleanup -->
+<FILE Run="/bin/bash">
+<INLINE>
+set -e
+echo "Cleanup completed"
+</INLINE>
+</FILE>
+
+<!-- remove -->
+<FILE Run="/bin/bash" Method="remove">
+<INLINE><![CDATA[
+set -e
+echo "正在卸载 Easy-Stun 插件..."
+
+# 停止easy-stun进程
+echo "  - 正在停止 Easy-Stun 服务..."
+EASY_STUN_PIDS=$(ps -eo pid,comm,args | awk '$2 ~ /easy-stun$/ || $3 ~ /easy-stun$/ {print $1}' || true)
+if [ -n "$EASY_STUN_PIDS" ]; then
+  echo "    检测到easy-stun进程，正在停止..."
+  echo "$EASY_STUN_PIDS" | xargs kill -9 2>/dev/null || true
+  # 等待进程完全停止
+  sleep 2
+  EASY_STUN_PIDS=$(ps -eo pid,comm,args | awk '$2 ~ /easy-stun$/ || $3 ~ /easy-stun$/ {print $1}' || true)
+  if [ -n "$EASY_STUN_PIDS" ]; then
+    echo "    强制停止easy-stun进程..."
+    echo "$EASY_STUN_PIDS" | xargs kill -9 2>/dev/null || true
+    sleep 1
+  fi
+  echo "  ✓ Easy-Stun 服务已停止"
+else
+  echo "  ✓ Easy-Stun 服务未运行"
+fi
+
+# 清理PID文件
+echo "  - 清理进程文件..."
+rm -f /var/run/easy-stun.pid
+echo "  ✓ 进程文件已清理"
+
+# 清理二进制文件
+echo "  - 清理二进制文件..."
+rm -f /usr/local/bin/easy-stun
+echo "  ✓ 二进制文件已清理"
+
+# 清理插件目录
+echo "  - 清理插件目录..."
+rm -rf /usr/local/emhttp/plugins/easy-stun
+rm -rf /boot/config/plugins/easy-stun
+echo "  ✓ 插件目录已清理"
+
+# 清理内存临时目录
+echo "  - 清理内存临时目录..."
+rm -rf /var/tmp/easy-stun-* /tmp/easy-stun-*
+echo "  ✓ 内存临时目录已清理"
+
+# 清理系统覆盖层文件（仅限本插件命名空间）
+echo "  - 清理系统文件..."
+rm -rf /var/local/overlay/usr/local/emhttp/plugins/easy-stun
+rm -f /var/local/overlay/usr/local/emhttp/plugins/easy-stun.*
+echo "  ✓ 系统文件已清理"
+
+# 清理日志文件
+echo "  - 清理日志文件..."
+rm -f /var/log/easy-stun.log
+echo "  ✓ 日志文件已清理"
+
+# 清理临时文件
+echo "  - 清理临时文件..."
+rm -f /tmp/easy-stun
+echo "  ✓ 临时文件已清理"
+
+# 清理开机即启动注入与标志
+echo "  - 清理开机启动配置..."
+sed -i "/^# BEGIN easy-stun (do not edit)$/,/^# END easy-stun$/d" /boot/config/go 2>/dev/null || true
+rm -f /boot/config/plugins/easy-stun/bootstart.enabled
+echo "  ✓ 开机启动配置已清理"
+
+echo ""
+echo "🎉 Easy-Stun 插件卸载完成！"
+echo "   所有相关文件和配置已完全清理。"
+]]></INLINE>
+</FILE>
+
+</PLUGIN>
