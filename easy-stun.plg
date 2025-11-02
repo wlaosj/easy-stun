@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "easy-stun">
 <!ENTITY author    "隔壁小王">
-<!ENTITY version   "0.0.1">
+<!ENTITY version   "1.0.0">
 <!ENTITY launch    "Settings/EasyStun.Main">
 <!ENTITY sourceDir "/boot/config/plugins/easy-stun">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/wlaosj/easy-stun/main/easy-stun.plg">
@@ -14,7 +14,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="https://t.me/+7jcTMePlNVwwZjg1" icon="icon-network">
 
 <CHANGES>
-0.0.1  初始版本发布
+1.0.0  正式版本发布
 【核心特性】
 - ⭐ 深度集成 Cloudflare：自动管理 DNS 记录和页面规则
 - ⭐ 无端口访问：通过 HTTPS 反向代理实现标准 443 端口访问
