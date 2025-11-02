@@ -542,6 +542,9 @@ function openWebUI() {
   <a href="https://t.me/+7jcTMePlNVwwZjg1" target="_blank" style="display:inline-block;background:#0088cc;color:white;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:bold;font-size:12px;margin-right:8px;">
     💬 Telegram
   </a>
+  <a href="https://space.bilibili.com/416291500" target="_blank" style="display:inline-block;background:#00A1D6;color:white;padding:4px 8px;border-radius:4px;text-decoration:none;font-weight:bold;font-size:12px;margin-right:8px;">
+    📺 Bilibili
+  </a>
   <span style="font-size:12px;color:#6c757d;">
     Easy-Stun 插件 | 作者：隔壁小王 | 功能：NAT穿透与端口暴露
   </span>
