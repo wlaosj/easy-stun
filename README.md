@@ -1,36 +1,163 @@
-# easy-stun
+# Easy-Stun
 
-> **⚠️ 预览版本**：本项目为预览版本，暂未公开发布，仅供内部测试使用。
+<div align="center">
 
-Go 语言实现的 NAT 穿透与端口暴露工具，支持通过 STUN 获取公网映射并将外网流量转发到内网服务。具备 HTTPS 反向代理功能，自动更新 STUN 获取的 IP 和端口，实现无人值守运行。通过 Cloudflare 集成实现无端口访问，用户只需访问固定域名即可，无需指定端口号。
+**🚀 智能 NAT 穿透工具 + Cloudflare 深度集成**
 
-## 特性
+*让你的内网服务像云服务一样被访问*
 
-### 核心功能
-- **STUN 获取公网映射**（RFC5389），支持多服务器轮询
-- **端口复用技术**：指定本地端口并复用（SO_REUSEADDR/SO_REUSEPORT）以复现稳定映射端口
-- **TCP/UDP 端口转发器**：监听同端口，将流量转发到内网目标
-- **智能保活机制**：长连接 + HTTP HEAD，读超时判定 OK
-- **自动复检**：定期检查 NAT 映射状态，必要时重新获取
-- **WAN 有效性检测**：通过外部服务验证端口可达性
+[![Go](https://img.shields.io/badge/Go-1.20+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Telegram](https://img.shields.io/badge/Telegram-交流群-0088cc?style=flat&logo=telegram)](https://t.me/+7jcTMePlNVwwZjg1)
 
-### 高级功能
-- **☁️ 无端口访问**：通过 Cloudflare 固定域名访问，用户无需在 URL 中指定端口号（默认 443），享受标准 HTTPS 访问体验
-- **☁️ 无人值守运行**：STUN 端口变化时自动更新 Cloudflare 页面规则和 DNS 记录，无需人工干预
-- **🔒 HTTPS 反向代理**：支持 SSL/TLS 终止，将外部 HTTPS 流量安全转发到内网 HTTP 服务
-- **📜 证书自动管理**：集成 acme.sh、certmagic、lego，支持自动证书申请和续签
-- **🌐 Web 管理界面**：完整的 Web UI，支持多隧道管理、实时监控、配置管理
-- **📊 实时监控**：SSE 事件推送，实时显示隧道状态和 Cloudflare 同步状态
-- **🔄 自动重试**：网络异常时自动重试，确保服务稳定性
+</div>
 
-## 主要特点
+---
 
-- **完全自动化**：STUN 端口变化时自动更新所有相关配置，实现真正的无人值守运行
-- **无端口访问**：用户通过固定域名访问，享受标准的 HTTPS 访问体验
-- **智能缓存处理**：确保端口变化后浏览器能够及时获取最新配置
-- **证书自动管理**：支持多种证书来源，自动申请和续签
-- **智能重定向**：HTTPS 反向代理模式下的智能重定向
+## ✨ 核心特色
 
-## 许可证
+### 🌟 **为什么选择 Easy-Stun？**
+
+传统的 NAT 穿透工具只能让你访问 `http://ip:随机端口`，而 **Easy-Stun** 通过深度集成 Cloudflare，让你的内网服务可以像云服务一样被访问：
+
+```
+传统方案：http://123.456.789.012:18234  ❌ 难记、不安全、端口会变
+Easy-Stun：https://your-service.com      ✅ 简洁、安全、永远不变
+```
+
+### 🎯 **核心优势**
+
+| 特性 | 传统工具 | Easy-Stun |
+|------|---------|-----------|
+| 访问方式 | `http://ip:port` | `https://domain.com` |
+| 端口变化 | 需要重新告知 | **自动更新规则** |
+| SSL 证书 | 手动申请 | **Cloudflare 自动** |
+| 用户体验 | 需要记住端口 | **标准 HTTPS 访问** |
+| 安全性 | 明文传输 | **强制 HTTPS** |
+
+---
+
+## 🚀 快速开始
+
+### Unraid 用户（推荐）
+
+1. **安装插件**：在 Unraid 插件管理器中搜索 "Easy-Stun"
+2. **配置 Cloudflare**：输入 API Token 和域名
+3. **创建隧道**：添加内网服务（如 Jellyfin、qBittorrent）
+4. **一键启动**：自动完成 NAT 穿透 + DNS + HTTPS
+
+🎉 **完成！** 现在可以通过 `https://jellyfin.yourdomain.com` 访问内网服务了！
+
+### 其他平台
+
+详见主项目文档。
+
+---
+
+## 📦 功能特性
+
+### ☁️ Cloudflare 深度集成
+
+- **自动 DNS 管理**：动态更新 A 记录指向公网 IP
+- **智能页面规则**：自动重定向到正确的端口
+- **零配置 SSL**：利用 Cloudflare 自动获取证书
+- **域名池管理**：统一管理多个域名和服务
+- **实时同步**：端口变化后 3 秒内完成所有更新
+
+### 🌐 NAT 穿透
+
+- **STUN 协议**（RFC 5389）：获取公网映射地址
+- **端口复用技术**：SO_REUSEADDR/SO_REUSEPORT
+- **TCP/UDP 支持**：同时支持两种协议
+- **多服务器轮询**：提高成功率和稳定性
+- **WAN 有效性检测**：自动验证端口可达性
+- **智能重连**：网络异常自动重试
+
+### 🔒 HTTPS 反向代理
+
+- **SSL/TLS 终止**：外部 HTTPS → 内网 HTTP
+- **证书自动管理**：集成 acme.sh / certmagic / lego
+- **自动续签**：证书到期前自动续签
+- **SNI 支持**：一个端口服务多个域名
+
+### 🎛️ Web 管理界面
+
+- **可视化管理**：完整的 Web UI
+- **多隧道支持**：统一管理多个内网服务
+- **实时监控**：SSE 推送隧道状态
+- **配置导入导出**：JSON 格式配置
+- **日志查看**：实时日志和历史记录
+
+---
+
+## 🎬 使用场景
+
+### 场景 1：家庭媒体服务器
+```
+内网：Jellyfin 运行在 192.168.1.100:8096
+外网：访问 https://jellyfin.yourdomain.com
+效果：和 Netflix 一样的访问体验！
+```
+
+### 场景 2：远程下载管理
+```
+内网：qBittorrent 运行在 192.168.1.100:8080
+外网：访问 https://bt.yourdomain.com
+效果：在任何地方管理下载任务
+```
+
+### 场景 3：家庭云存储
+```
+内网：Nextcloud 运行在 192.168.1.100:8000
+外网：访问 https://cloud.yourdomain.com
+效果：自己的 Google Drive
+```
+
+---
+
+## 🛠️ 技术架构
+
+```
+Internet
+    ↓
+Cloudflare (443) ← 用户访问: https://service.com
+    ↓ (页面规则重定向)
+Cloudflare (动态端口) ← 实际代理: service-stun.com:18234
+    ↓
+公网 IP:18234 ← STUN 获取的动态端口
+    ↓ (NAT 穿透)
+内网服务:8080 ← 你的内网服务
+```
+
+---
+
+## 📋 系统要求
+
+- **操作系统**：Linux / Windows / macOS / Unraid
+- **网络环境**：具有公网 IP 的网络（NAT 环境）
+- **Cloudflare**：托管的域名（免费版即可）
+- **Go 版本**：1.20+ （仅编译时需要）
+
+---
+
+## 🤝 支持与交流
+
+- **Telegram 交流群**：[点击加入](https://t.me/+7jcTMePlNVwwZjg1)
+- **问题反馈**：[GitHub Issues](https://github.com/wlaosj/easy-stun/issues)
+- **功能建议**：欢迎提交 PR
+
+---
+
+## 📄 许可证
 
 本项目以开源学习与工程实践为目的，依赖标准库与公开 STUN 服务，请合理使用。
+
+---
+
+<div align="center">
+
+**⭐ 如果觉得有用，欢迎 Star！**
+
+Made with ❤️ by 隔壁小王
+
+</div>
