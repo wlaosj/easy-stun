@@ -7,7 +7,6 @@
 *让你的内网服务像云服务一样被访问*
 
 [![Go](https://img.shields.io/badge/Go-1.20+-00ADD8?style=flat&logo=go)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Telegram](https://img.shields.io/badge/Telegram-交流群-0088cc?style=flat&logo=telegram)](https://t.me/+7jcTMePlNVwwZjg1)
 
 </div>
@@ -41,16 +40,31 @@ Easy-Stun：https://your-service.com      ✅ 简洁、安全、永远不变
 
 ### Unraid 用户（推荐）
 
-1. **安装插件**：在 Unraid 插件管理器中搜索 "Easy-Stun"
+**安装步骤：**
+
+1. **安装插件**：
+   - 打开 Unraid 管理界面 → `插件` → `安装插件`
+   - 在 URL 输入框中粘贴：
+     ```
+     https://raw.githubusercontent.com/wlaosj/easy-stun/refs/heads/main/easy-stun.plg
+     ```
+   - 点击 `安装` 等待完成
+
 2. **配置 Cloudflare**：输入 API Token 和域名
-3. **创建隧道**：添加内网服务（如 Jellyfin、qBittorrent）
+
+3. **创建隧道**：添加内网服务（如 Jellyfin、qBittorrent）配置https相关设置
+
 4. **一键启动**：自动完成 NAT 穿透 + DNS + HTTPS
 
 🎉 **完成！** 现在可以通过 `https://jellyfin.yourdomain.com` 访问内网服务了！
 
 ### 其他平台
 
-详见主项目文档。
+🚧 **待适配中...**
+
+目前 Easy-Stun 专注于 Unraid 平台的深度集成和优化。
+
+其他平台待适配！
 
 ---
 
@@ -115,22 +129,6 @@ Easy-Stun：https://your-service.com      ✅ 简洁、安全、永远不变
 
 ---
 
-## 🛠️ 技术架构
-
-```
-Internet
-    ↓
-Cloudflare (443) ← 用户访问: https://service.com
-    ↓ (页面规则重定向)
-Cloudflare (动态端口) ← 实际代理: service-stun.com:18234
-    ↓
-公网 IP:18234 ← STUN 获取的动态端口
-    ↓ (NAT 穿透)
-内网服务:8080 ← 你的内网服务
-```
-
----
-
 ## 📋 系统要求
 
 - **操作系统**：Linux / Windows / macOS / Unraid
@@ -143,20 +141,20 @@ Cloudflare (动态端口) ← 实际代理: service-stun.com:18234
 ## 🤝 支持与交流
 
 - **Telegram 交流群**：[点击加入](https://t.me/+7jcTMePlNVwwZjg1)
-- **问题反馈**：[GitHub Issues](https://github.com/wlaosj/easy-stun/issues)
-- **功能建议**：欢迎提交 PR
+- **问题反馈**：欢迎在 Telegram 群内讨论
+- **使用帮助**：群内提供技术支持和使用指导
 
 ---
 
-## 📄 许可证
+## 📄 版权声明
 
-本项目以开源学习与工程实践为目的，依赖标准库与公开 STUN 服务，请合理使用。
+本项目为闭源软件，版权归作者所有。依赖标准库与公开 STUN 服务，仅供个人学习和非商业使用。未经授权，禁止用于商业目的或二次分发。
 
 ---
 
 <div align="center">
 
-**⭐ 如果觉得有用，欢迎 Star！**
+**💬 遇到问题？加入 Telegram 群一起交流！**
 
 Made with ❤️ by 隔壁小王
 
