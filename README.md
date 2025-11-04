@@ -16,7 +16,7 @@
 
 > **⚠️ Beta 测试版本**
 > 
-> 当前版本为 Beta 测试阶段，功能持续优化中。使用过程中如遇到 Bug 或问题属于正常现象，欢迎加入 Telegram 群反馈，也可以B站反馈，帮助我们改进！
+> 当前版本为 Beta 测试阶段，功能持续优化中。使用过程中如遇到 Bug 或问题属于正常现象，欢迎加入 Telegram 群反馈，也可关注B站反馈，帮助我们改进！
 
 ---
 
@@ -65,13 +65,28 @@ Easy-Stun：https://your-service.com      ✅ 简洁、安全、永远不变
 
 🎉 **完成！** 现在可以通过 `https://jellyfin.yourdomain.com` 访问内网服务了！
 
+### 飞牛 OS (FNasOS)
+
+**手动安装方式：**
+
+1. **下载安装包**：
+   - 下载最新版本：[easy-stun-2025.11.04.fpk](https://github.com/wlaosj/easy-stun/blob/main/easy-stun-2025.11.04.fpk)
+   - 或直接下载：[直接下载链接](https://raw.githubusercontent.com/wlaosj/easy-stun/main/easy-stun-2025.11.04.fpk)
+   
+2. **安装应用**：
+   - 打开飞牛OS应用中心
+   - 点击右上角"手动安装"
+   - 选择下载的 `.fpk` 文件
+   - 等待安装完成
+
+3. **启动配置**：
+   - 在已安装应用中找到 Easy-Stun
+   - 点击打开 WebUI
+   - 按照 Unraid 相同的步骤配置即可
+
 ### 其他平台
 
 🚧 **待适配中...**
-
-目前 Easy-Stun 专注于 Unraid 平台的深度集成和优化。
-
-其他平台待适配！
 
 ---
 
