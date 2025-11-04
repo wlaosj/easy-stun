@@ -20,6 +20,16 @@
 
 ---
 
+## 📺 视频教程
+
+> 🎬 **不知道如何配置？看视频教程更直观！**
+> 
+> 👉 **[【完整教程】Easy-Stun 安装配置指南 - Bilibili](https://www.bilibili.com/video/BV1234567890)**
+> 
+> 涵盖：安装部署、Cloudflare 配置、隧道创建、HTTPS 设置等完整流程
+
+---
+
 ## ✨ 核心特色
 
 ### 🌟 **为什么选择 Easy-Stun？**
