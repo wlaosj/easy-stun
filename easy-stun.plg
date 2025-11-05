@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "easy-stun">
 <!ENTITY author    "隔壁小王">
-<!ENTITY version   "1.0.0">
+<!ENTITY version   "1.0.1">
 <!ENTITY launch    "Settings/EasyStun.Main">
 <!ENTITY sourceDir "/boot/config/plugins/easy-stun">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/wlaosj/easy-stun/main/easy-stun.plg">
@@ -14,6 +14,33 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="&pluginURL;" min="6.12.0" support="https://t.me/+7jcTMePlNVwwZjg1" icon="icon-network">
 
 <CHANGES>
+1.0.1  智能更新版
+【核心功能优化】
+- ⭐ 自动从 GitHub Releases 获取最新版本
+- ⭐ 智能检测更新功能，一键升级
+- ⭐ 手动下载核心，支持离线安装
+- ⭐ 版本管理系统，自动保存版本信息
+
+【下载管理增强】
+- 智能下载按钮：根据服务状态和版本自动调整
+- 服务运行时自动禁用下载，防止误操作
+- 实时进度显示（5% → 100%）
+- 下载完成自动刷新，显示新版本
+- 支持重新安装功能，修复损坏文件
+
+【用户体验提升】
+- 页面加载自动静默检查更新
+- 每3秒自动监控服务状态
+- 按钮颜色智能提示（绿色/黄色/灰色）
+- 清晰的操作引导和确认对话框
+- 查看所有版本链接
+
+【安全性改进】
+- 多层保护机制，防止重复下载
+- 服务运行时禁用更新按钮
+- 文件完整性验证
+- 错误处理和自动恢复
+
 1.0.0  正式版本发布
 【核心特性】
 - ⭐ 深度集成 Cloudflare：自动管理 DNS 记录和页面规则
@@ -80,38 +107,8 @@ mkdir -p /usr/local/emhttp/plugins/easy-stun/scripts
 mkdir -p /boot/config/plugins/easy-stun
 mkdir -p /usr/local/bin
 
-# 从GitHub下载easy-stun二进制文件
-echo "  - 正在从GitHub下载easy-stun二进制文件..."
-BIN_URL="https://github.com/wlaosj/easy-stun/raw/refs/heads/main/easy-stun"
-TMP_BIN="/tmp/easy-stun-latest"
-
-# 添加超时和重试机制
-if timeout 60 wget --timeout=30 --tries=3 -q "$BIN_URL" -O "$TMP_BIN"; then
-  echo "  - 下载完成，正在安装..."
-  chmod +x "$TMP_BIN"
-  
-  # 双重存储：U盘持久化 + 内存系统PATH
-  cp -f "$TMP_BIN" /boot/config/plugins/easy-stun/easy-stun
-  cp -f "$TMP_BIN" /usr/local/bin/easy-stun
-  chmod +x /boot/config/plugins/easy-stun/easy-stun
-  chmod +x /usr/local/bin/easy-stun
-  
-  rm -f "$TMP_BIN"
-  echo "  ✓ easy-stun二进制文件已下载并安装（已保存到U盘和内存）"
-else
-  echo "  ⚠️ 下载easy-stun二进制文件失败，请检查网络连接"
-  echo "  - 下载URL: $BIN_URL"
-  echo "  - 临时文件: $TMP_BIN"
-  echo "  - 插件将安装但需要手动下载二进制文件"
-  # 清理临时文件
-  rm -f "$TMP_BIN"
-  
-  # 创建占位文件，避免启动时出错
-  touch /boot/config/plugins/easy-stun/easy-stun
-  touch /usr/local/bin/easy-stun
-  chmod +x /boot/config/plugins/easy-stun/easy-stun
-  chmod +x /usr/local/bin/easy-stun
-fi
+# 跳过自动下载核心：将由插件页面提供手动下载/更新入口
+echo "跳过自动下载核心：将由插件页面提供手动下载/更新入口"
 
 # 创建默认配置文件（仅当不存在时）
 CONF_DIR="/boot/config/plugins/easy-stun"
@@ -357,7 +354,7 @@ EOF
 chmod +x "/usr/local/emhttp/plugins/easy-stun/scripts/easy-stun-dashboard.js"
 echo "  ✓ 仪表板JavaScript文件已创建"
 
-echo "✓ 插件基础文件部署完成"
+echo "✓ 插件基础文件部署完成（未自动下载核心）"
 ]]></INLINE>
 </FILE>
 
@@ -373,8 +370,40 @@ $dataDir = $confDir . '/data';
 $configFile = $dataDir . '/tunnels.json';
 $portFile = $confDir . '/port.conf';
 
+// 进度文件目录
+$progressDir = '/var/tmp/easy-stun-progress';
+@mkdir($progressDir, 0777, true);
+
 $cmd = isset($_POST['cmd']) ? $_POST['cmd'] : (isset($_GET['cmd']) ? $_GET['cmd'] : '');
 $msg = '';
+
+// 早期拦截：进度轮询，直接输出文本并退出
+if ($cmd === 'get_progress') {
+  $target = $_GET['target'] ?? $_POST['target'] ?? '';
+  $file = '';
+  if ($target === 'core') $file = $progressDir . '/core.status';
+  header('Content-Type: text/plain; charset=utf-8');
+  if ($file && is_file($file)) {
+    echo @file_get_contents($file);
+  }
+  exit;
+}
+if ($cmd === 'start_download') {
+  $target = $_GET['target'] ?? $_POST['target'] ?? '';
+  if ($target === 'core') {
+    @unlink($progressDir . '/core.status');
+    $out = shell_exec("nohup bash $scripts/download_core.sh --progress >$progressDir/core.log 2>&1 & echo $!");
+    $msg = '核心下载任务已启动 PID: ' . htmlspecialchars(trim($out));
+  } else {
+    $msg = '未知的下载目标';
+  }
+  // 若为异步请求（ajax=1），仅返回纯文本并退出，避免整页HTML回填到消息区域
+  if ((isset($_GET['ajax']) && $_GET['ajax'] === '1') || (isset($_POST['ajax']) && $_POST['ajax'] === '1')) {
+    header('Content-Type: text/plain; charset=utf-8');
+    echo $msg;
+    exit;
+  }
+}
 
 // 处理命令
 if ($cmd === 'start') {
@@ -493,10 +522,11 @@ if (file_exists($portFile)) {
 // 检查安装状态
 $installStatus = '';
 $binExists = file_exists('/usr/local/bin/easy-stun');
+$binUdiskExists = file_exists('/boot/config/plugins/easy-stun/easy-stun');
 $configExists = file_exists($configFile);
 
 if (!$binExists) {
-  $installStatus = '<div class="error">❌ 缺少二进制文件，请先编译 easy-stun 项目</div>';
+  $installStatus = '<div class="error">❌ 缺少二进制文件，请点击下方"下载/更新核心"按钮安装</div>';
 } elseif (!$configExists) {
   $installStatus = '<div class="success">💡 配置文件已创建，可以开始使用</div>';
 }
@@ -521,6 +551,13 @@ function executeAction(action) {
   var url = new URL(window.location);
   url.searchParams.set('cmd', action);
   window.location.href = url.toString();
+  
+  // 如果是启动/停止/重启操作，延迟后更新按钮状态
+  if (action === 'start' || action === 'stop' || action === 'restart') {
+    setTimeout(function() {
+      updateDownloadButtonState();
+    }, 2000);
+  }
 }
 
 function openWebUI() {
@@ -534,6 +571,284 @@ function openWebUI() {
   // 在新标签页中打开WebUI
   window.open(webUIUrl, '_blank');
 }
+
+function startDownload(target, btn) {
+  // 禁用所有下载按钮，防止重复点击
+  var downloadBtn = document.getElementById('download-btn');
+  if (downloadBtn) {
+    downloadBtn.dataset.oldText = downloadBtn.innerText;
+    downloadBtn.dataset.oldColor = downloadBtn.style.background;
+    downloadBtn.disabled = true;
+    downloadBtn.style.background = '#6c757d';
+    downloadBtn.style.cursor = 'not-allowed';
+    downloadBtn.innerText = '下载中...';
+  }
+  
+  var box = document.getElementById('download-msg');
+  if (box) box.innerText = '已发起下载任务，正在准备...';
+  
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', '/plugins/easy-stun/api.php?cmd=start_download&target=' + encodeURIComponent(target));
+  xhr.onload = function(){
+    if (xhr.status === 200) {
+      if (box) box.innerText = (xhr.responseText || '').trim() || '任务已启动';
+    } else {
+      // 下载启动失败，恢复按钮
+      if (downloadBtn) {
+        downloadBtn.disabled = false;
+        downloadBtn.style.background = downloadBtn.dataset.oldColor || '#007bff';
+        downloadBtn.style.cursor = 'pointer';
+        downloadBtn.innerText = downloadBtn.dataset.oldText || '下载核心';
+      }
+    }
+  };
+  xhr.onerror = function(){
+    // 网络错误，恢复按钮
+    if (downloadBtn) {
+      downloadBtn.disabled = false;
+      downloadBtn.style.background = downloadBtn.dataset.oldColor || '#007bff';
+      downloadBtn.style.cursor = 'pointer';
+      downloadBtn.innerText = downloadBtn.dataset.oldText || '下载核心';
+    }
+  };
+  xhr.send();
+}
+
+function pollProgress(target, elId) {
+  var lastStatus = '';
+  function tick(){
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/plugins/easy-stun/api.php?cmd=get_progress&target=' + encodeURIComponent(target));
+    xhr.onload = function(){
+      if (xhr.status === 200) {
+        var box = document.getElementById(elId);
+        var txt = xhr.responseText || '';
+        if (txt.trim()) {
+          lastStatus = txt;
+          box.innerText = txt;
+          
+          // 如果显示100%，说明下载完成
+          if (txt.includes('100%')) {
+            setTimeout(function(){
+              box.innerText = '✅ 下载完成，正在刷新状态...';
+              // 刷新页面以显示新版本
+              setTimeout(function(){
+                window.location.reload();
+              }, 2000);
+            }, 1000);
+          }
+        } else {
+          // 进度文件已被清理
+          if (lastStatus && lastStatus.includes('%') && !lastStatus.includes('100%')) {
+            // 如果之前有进度但不是100%，现在没了，说明可能出错了
+            box.innerText = '⚠️ 下载可能中断';
+            setTimeout(function(){ box.innerText=''; }, 5000);
+          } else if (lastStatus.includes('100%')) {
+            // 已经完成了
+            box.innerText = '';
+          }
+          lastStatus = '';
+        }
+      }
+    };
+    xhr.send();
+  }
+  tick();
+  return setInterval(tick, 2000);
+}
+
+// 全局变量存储更新状态
+window.updateCheckData = null;
+
+function checkUpdate(silent) {
+  var updateInfo = document.getElementById('update-info');
+  if (updateInfo && !silent) {
+    updateInfo.innerHTML = '<span style="color:#6c757d;">检查中...</span>';
+  }
+  
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', '/plugins/easy-stun/api.php?cmd=check_update');
+  xhr.onload = function(){
+    if (xhr.status === 200) {
+      try {
+        var data = JSON.parse(xhr.responseText);
+        // 保存到全局变量
+        window.updateCheckData = data;
+        
+        var localVer = document.getElementById('local-version');
+        
+        if (localVer && data.local && data.local !== 'not installed') {
+          localVer.textContent = data.local;
+        }
+        
+        if (updateInfo) {
+          if (data.has_update) {
+            if (data.local === 'not installed') {
+              updateInfo.innerHTML = '<span style="color:#dc3545;">🔴 ' + data.message + '</span>';
+            } else {
+              updateInfo.innerHTML = '<span style="color:#ffc107;">🟡 ' + data.message + '</span>';
+            }
+          } else {
+            updateInfo.innerHTML = '<span style="color:#28a745;">✅ ' + data.message + '</span>';
+          }
+          
+          // 5秒后自动清除消息（如果是已是最新版本）
+          if (!data.has_update && !silent) {
+            setTimeout(function(){ 
+              if (updateInfo) updateInfo.innerHTML = ''; 
+            }, 5000);
+          }
+        }
+        
+        // 更新下载按钮状态（统一由 updateDownloadButtonState 处理）
+        updateDownloadButtonState();
+        
+      } catch (e) {
+        if (updateInfo && !silent) {
+          updateInfo.innerHTML = '<span style="color:#dc3545;">解析失败</span>';
+        }
+      }
+    } else {
+      if (updateInfo && !silent) {
+        updateInfo.innerHTML = '<span style="color:#dc3545;">检查失败</span>';
+      }
+    }
+  };
+  xhr.onerror = function(){
+    if (updateInfo && !silent) {
+      updateInfo.innerHTML = '<span style="color:#dc3545;">网络错误</span>';
+    }
+  };
+  xhr.send();
+}
+
+// 检查服务是否运行
+function checkServiceRunning() {
+  var statusElements = document.querySelectorAll('span[style*="color:#28a745"]');
+  for (var i = 0; i < statusElements.length; i++) {
+    if (statusElements[i].textContent.includes('运行中')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// 更新下载按钮状态
+function updateDownloadButtonState() {
+  var downloadBtn = document.getElementById('download-btn');
+  var updateInfo = document.getElementById('update-info');
+  
+  if (!downloadBtn) return;
+  
+  // 检查是否正在下载
+  var progressBox = document.getElementById('progress-core');
+  if (progressBox && progressBox.textContent && progressBox.textContent.includes('%')) {
+    downloadBtn.disabled = true;
+    downloadBtn.style.background = '#6c757d';
+    downloadBtn.style.cursor = 'not-allowed';
+    downloadBtn.textContent = '下载中...';
+    return;
+  }
+  
+  // 检查服务是否运行
+  if (checkServiceRunning()) {
+    downloadBtn.disabled = true;
+    downloadBtn.style.background = '#6c757d';
+    downloadBtn.style.cursor = 'not-allowed';
+    downloadBtn.textContent = '请先停止服务';
+    
+    // 显示提示信息
+    if (updateInfo && window.updateCheckData && window.updateCheckData.has_update) {
+      var originalMsg = updateInfo.innerHTML;
+      if (!originalMsg.includes('请先停止服务')) {
+        updateInfo.innerHTML = originalMsg + ' <span style="color:#dc3545;">(请先停止服务)</span>';
+      }
+    }
+    return;
+  }
+  
+  // 服务未运行，启用按钮并根据更新状态设置样式
+  downloadBtn.disabled = false;
+  downloadBtn.style.cursor = 'pointer';
+  
+  if (window.updateCheckData) {
+    var data = window.updateCheckData;
+    if (data.has_update) {
+      if (data.local === 'not installed') {
+        downloadBtn.style.background = '#28a745';
+        downloadBtn.textContent = '下载核心';
+      } else {
+        downloadBtn.style.background = '#ffc107';
+        downloadBtn.style.color = '#000';
+        downloadBtn.textContent = '更新到 ' + data.remote;
+      }
+    } else {
+      downloadBtn.style.background = '#6c757d';
+      downloadBtn.textContent = '重新安装';
+    }
+  } else {
+    downloadBtn.style.background = '#007bff';
+    downloadBtn.textContent = '下载/更新核心';
+  }
+}
+
+// 智能下载函数（简化版，不再检查运行状态）
+function smartDownload(target, btn) {
+  // 检查是否正在下载
+  var progressBox = document.getElementById('progress-core');
+  if (progressBox && progressBox.textContent && progressBox.textContent.includes('%')) {
+    alert('⚠️ 正在下载中，请等待当前下载完成');
+    return;
+  }
+  
+  // 检查是否有更新信息
+  if (!window.updateCheckData) {
+    // 没有检查过更新，先检查
+    if (confirm('📦 即将下载最新版本核心文件\n\n是否继续？')) {
+      startDownload(target, btn);
+    }
+    return;
+  }
+  
+  var data = window.updateCheckData;
+  
+  // 根据更新状态给出不同提示
+  if (data.has_update) {
+    // 有新版本
+    var confirmMsg = '';
+    if (data.local === 'not installed') {
+      confirmMsg = '📦 即将下载核心文件\n\n最新版本: ' + data.remote + '\n\n是否继续？';
+    } else {
+      confirmMsg = '🔄 发现新版本！\n\n当前版本: ' + data.local + '\n最新版本: ' + data.remote + '\n\n是否更新？';
+    }
+    
+    if (confirm(confirmMsg)) {
+      startDownload(target, btn);
+    }
+  } else {
+    // 已是最新版本，询问是否重新安装
+    var reinstallMsg = '✅ 当前已是最新版本: ' + data.remote + '\n\n是否重新安装？（可用于修复损坏的文件）';
+    if (confirm(reinstallMsg)) {
+      startDownload(target, btn);
+    }
+  }
+}
+
+// 页面加载后开始轮询进度
+pollProgress('core', 'progress-core');
+
+// 页面加载后自动检查更新（静默模式）
+window.addEventListener('load', function() {
+  // 1秒后检查更新
+  setTimeout(function() {
+    checkUpdate(true); // 静默模式，不显示"检查中..."提示
+  }, 1000);
+  
+  // 定期更新按钮状态（每3秒检查一次服务状态）
+  setInterval(function() {
+    updateDownloadButtonState();
+  }, 3000);
+});
 </script>
 </head>
 <body>
@@ -570,10 +885,27 @@ function openWebUI() {
   <div style="margin-top:8px">
     <b>核心：</b>
     <?php if ($binExists): ?>
-      <span style="color:#28a745">已安装</span> | 版本：<?= htmlspecialchars(trim($version ?? 'unknown')) ?>
+      <span style="color:#28a745">已安装</span> | 
+      <button id="download-btn" onclick="smartDownload('core', this)" style="background:#007bff;color:white;border:none;padding:4px 8px;border-radius:3px;cursor:pointer;">下载/更新核心</button> | 
+      <button onclick="checkUpdate()" style="background:#17a2b8;color:white;border:none;padding:4px 8px;border-radius:3px;cursor:pointer;">检查更新</button> | 
+      本地版本：<span id="local-version"><?= htmlspecialchars(trim($version ?? 'unknown')) ?></span>
+      <span id="update-info" style="margin-left:8px;font-weight:bold;"></span>
+    <?php elseif ($binUdiskExists): ?>
+      <span style="color:#ffc107">已保存</span>（重启后自动恢复） | 
+      <button id="download-btn" onclick="smartDownload('core', this)" style="background:#007bff;color:white;border:none;padding:4px 8px;border-radius:3px;cursor:pointer;">下载/更新核心</button> | 
+      <button onclick="checkUpdate()" style="background:#17a2b8;color:white;border:none;padding:4px 8px;border-radius:3px;cursor:pointer;">检查更新</button>
+      <span id="update-info" style="margin-left:8px;font-weight:bold;"></span>
     <?php else: ?>
-      <span style="color:#dc3545">未安装</span> | 请先编译 easy-stun 项目
+      <span style="color:#dc3545">未安装</span> | 
+      <button id="download-btn" onclick="smartDownload('core', this)" style="background:#28a745;color:white;border:none;padding:4px 8px;border-radius:3px;cursor:pointer;">下载核心</button> | 
+      <button onclick="checkUpdate()" style="background:#17a2b8;color:white;border:none;padding:4px 8px;border-radius:3px;cursor:pointer;">检查最新版本</button>
+      <span id="update-info" style="margin-left:8px;font-weight:bold;"></span>
     <?php endif; ?>
+    <div id="progress-core" style="font-size:12px;color:#6c757d;margin-top:4px"></div>
+    <div style="margin-top:4px;font-size:12px;color:#6c757d;">
+      💡 <strong>手动安装：</strong>将 easy-stun 二进制文件放到 <code>/boot/config/plugins/easy-stun/easy-stun</code>，插件会自动识别并复制到内存
+      | <a href="https://github.com/wlaosj/easy-stun/releases" target="_blank" style="color:#007bff;">查看所有版本</a>
+    </div>
   </div>
 
   <div style="margin-top:6px">
@@ -652,8 +984,34 @@ header('Content-Type: text/plain; charset=utf-8');
 $baseRun = '/usr/local/emhttp/plugins/easy-stun';
 $scripts = $baseRun . '/scripts';
 $portFile = '/boot/config/plugins/easy-stun/port.conf';
+$progressDir = '/var/tmp/easy-stun-progress';
+@mkdir($progressDir, 0777, true);
 
 $cmd = $_GET['cmd'] ?? $_POST['cmd'] ?? '';
+if ($cmd === 'get_progress') {
+  $target = $_GET['target'] ?? $_POST['target'] ?? '';
+  $file = '';
+  if ($target === 'core') $file = $progressDir . '/core.status';
+  if ($file && is_file($file)) { echo @file_get_contents($file); }
+  exit;
+}
+if ($cmd === 'start_download') {
+  $target = $_GET['target'] ?? $_POST['target'] ?? '';
+  if ($target === 'core') {
+    @unlink($progressDir . '/core.status');
+    $out = shell_exec("nohup bash $scripts/download_core.sh --progress >$progressDir/core.log 2>&1 & echo $!");
+    echo '核心下载任务已启动 PID: ' . trim($out);
+  } else {
+    echo '未知的下载目标';
+  }
+  exit;
+}
+if ($cmd === 'check_update') {
+  header('Content-Type: application/json; charset=utf-8');
+  $updateInfo = shell_exec("bash $scripts/check_update.sh 2>&1");
+  echo $updateInfo;
+  exit;
+}
 if ($cmd === 'dashboard_status') {
   // 返回JSON格式的仪表板数据
   header('Content-Type: application/json; charset=utf-8');
@@ -972,7 +1330,19 @@ echo "status=$STATUS pid=$PID"
 <INLINE><![CDATA[
 #!/bin/bash
 set -e
+VERSION_FILE="/boot/config/plugins/easy-stun/.version"
 BIN="/usr/local/bin/easy-stun"
+
+# 优先从版本文件读取（下载时保存的版本号）
+if [ -f "$VERSION_FILE" ]; then
+  VERSION=$(cat "$VERSION_FILE" 2>/dev/null | tr -d '\n\r' || echo "")
+  if [ -n "$VERSION" ]; then
+    echo "$VERSION"
+    exit 0
+  fi
+fi
+
+# 如果版本文件不存在，尝试从二进制文件获取
 if [ -f "$BIN" ]; then 
   # 尝试获取版本信息（容错处理）
   OUT=$("$BIN" -version 2>&1 || true)
@@ -986,6 +1356,157 @@ if [ -f "$BIN" ]; then
 else 
   echo "binary missing"
 fi
+]]></INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/easy-stun/scripts/check_update.sh" Mode="0755">
+<INLINE><![CDATA[
+#!/bin/bash
+set -e
+
+GITHUB_REPO="wlaosj/easy-stun"
+GITHUB_API="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
+TMP_JSON="/tmp/easy-stun-check-update.json"
+VERSION_FILE="/boot/config/plugins/easy-stun/.version"
+
+# 获取本地版本
+LOCAL_VERSION=""
+if [ -f "$VERSION_FILE" ]; then
+  LOCAL_VERSION=$(cat "$VERSION_FILE" 2>/dev/null | tr -d '\n\r' || echo "")
+fi
+
+# 如果没有版本文件，尝试从二进制文件获取（如果支持）
+if [ -z "$LOCAL_VERSION" ]; then
+  BIN="/usr/local/bin/easy-stun"
+  if [ -f "$BIN" ]; then
+    LOCAL_VERSION=$("$BIN" -version 2>&1 | head -n 1 || echo "unknown")
+  else
+    LOCAL_VERSION="not installed"
+  fi
+fi
+
+# 获取远程最新版本
+REMOTE_VERSION=""
+if wget -q --timeout=10 --tries=2 -O "$TMP_JSON" "$GITHUB_API" 2>/dev/null; then
+  REMOTE_VERSION=$(grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$TMP_JSON" | head -n1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+  rm -f "$TMP_JSON"
+fi
+
+# 输出结果（JSON格式）
+echo "{"
+echo "  \"local\": \"$LOCAL_VERSION\","
+echo "  \"remote\": \"$REMOTE_VERSION\","
+
+if [ -z "$REMOTE_VERSION" ]; then
+  echo "  \"has_update\": false,"
+  echo "  \"message\": \"无法获取远程版本信息\""
+elif [ "$LOCAL_VERSION" = "not installed" ]; then
+  echo "  \"has_update\": true,"
+  echo "  \"message\": \"核心未安装，最新版本: $REMOTE_VERSION\""
+elif [ "$LOCAL_VERSION" != "$REMOTE_VERSION" ]; then
+  echo "  \"has_update\": true,"
+  echo "  \"message\": \"发现新版本: $REMOTE_VERSION\""
+else
+  echo "  \"has_update\": false,"
+  echo "  \"message\": \"已是最新版本\""
+fi
+
+echo "}"
+]]></INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/easy-stun/scripts/download_core.sh" Mode="0755">
+<INLINE><![CDATA[
+#!/bin/bash
+set -e
+
+PROGRESS=0
+if [ "$1" = "--progress" ]; then PROGRESS=1; fi
+
+GITHUB_REPO="wlaosj/easy-stun"
+GITHUB_API="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
+TMP_BIN="/tmp/easy-stun-latest"
+TMP_JSON="/tmp/easy-stun-release.json"
+STATUS_DIR="/var/tmp/easy-stun-progress"
+STATUS_FILE="$STATUS_DIR/core.status"
+VERSION_FILE="/boot/config/plugins/easy-stun/.version"
+mkdir -p "$STATUS_DIR"
+
+write_status(){
+  echo "$1"
+  if [ "$PROGRESS" = "1" ]; then echo "$1" > "$STATUS_FILE"; fi
+}
+
+trap 'write_status "error: unexpected failure"' ERR
+
+write_status "5%: 正在获取最新版本信息..."
+
+# 获取最新 release 信息
+if ! wget -q --timeout=15 --tries=2 -O "$TMP_JSON" "$GITHUB_API"; then
+  write_status "error: 无法获取版本信息，请检查网络连接"
+  rm -f "$TMP_JSON"
+  exit 1
+fi
+
+write_status "10%: 解析版本信息..."
+
+# 提取版本号和下载地址（查找名为 easy-stun 的 asset）
+RELEASE_TAG=$(grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' "$TMP_JSON" | head -n1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+DOWNLOAD_URL=$(grep -o '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*easy-stun[^"]*"' "$TMP_JSON" | head -n1 | sed 's/.*"browser_download_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+if [ -z "$RELEASE_TAG" ] || [ -z "$DOWNLOAD_URL" ]; then
+  write_status "error: 解析版本信息失败"
+  rm -f "$TMP_JSON"
+  exit 1
+fi
+
+write_status "15%: 发现最新版本 $RELEASE_TAG"
+write_status "20%: 准备下载核心..."
+
+# 下载二进制文件
+if ! wget -q --timeout=60 --tries=3 --show-progress -O "$TMP_BIN" "$DOWNLOAD_URL" 2>&1 | while IFS= read -r line; do
+  # 尝试解析 wget 进度
+  if echo "$line" | grep -q "%"; then
+    PERCENT=$(echo "$line" | grep -o '[0-9]\+%' | head -n1 | tr -d '%')
+    if [ -n "$PERCENT" ] && [ "$PERCENT" -ge 20 ] && [ "$PERCENT" -le 80 ]; then
+      write_status "$PERCENT%: 正在下载..."
+    fi
+  fi
+done; then
+  write_status "error: 下载失败"
+  rm -f "$TMP_JSON" "$TMP_BIN"
+  exit 1
+fi
+
+write_status "85%: 下载完成，正在安装..."
+
+# 验证文件完整性
+if [ ! -s "$TMP_BIN" ]; then
+  write_status "error: 下载的文件为空"
+  rm -f "$TMP_JSON" "$TMP_BIN"
+  exit 1
+fi
+
+chmod +x "$TMP_BIN"
+
+write_status "90%: 正在安装核心..."
+mkdir -p /usr/local/bin
+mkdir -p /boot/config/plugins/easy-stun
+
+# 双重存储：U盘持久化 + 内存系统PATH
+cp -f "$TMP_BIN" /boot/config/plugins/easy-stun/easy-stun
+cp -f "$TMP_BIN" /usr/local/bin/easy-stun
+chmod +x /boot/config/plugins/easy-stun/easy-stun
+chmod +x /usr/local/bin/easy-stun
+
+# 保存版本信息
+echo "$RELEASE_TAG" > "$VERSION_FILE"
+
+write_status "95%: 清理临时文件..."
+rm -f "$TMP_BIN" "$TMP_JSON"
+
+write_status "100%: 核心安装完成 ($RELEASE_TAG)"
+( sleep 2; rm -f "$STATUS_FILE" ) >/dev/null 2>&1 &
 ]]></INLINE>
 </FILE>
 
@@ -1354,6 +1875,7 @@ $(document).ready(function() {
 <INLINE>
 set -e
 echo "Easy-Stun plugin installed. Persistent path: /boot/config/plugins/easy-stun"
+echo "请前往插件页面手动下载核心文件，或手动上传到 /boot/config/plugins/easy-stun/easy-stun"
 </INLINE>
 </FILE>
 
@@ -1403,12 +1925,14 @@ echo "  ✓ 二进制文件已清理"
 # 清理插件目录
 echo "  - 清理插件目录..."
 rm -rf /usr/local/emhttp/plugins/easy-stun
+rm -f /boot/config/plugins/easy-stun/.version
 rm -rf /boot/config/plugins/easy-stun
 echo "  ✓ 插件目录已清理"
 
 # 清理内存临时目录
 echo "  - 清理内存临时目录..."
 rm -rf /var/tmp/easy-stun-* /tmp/easy-stun-*
+rm -rf /var/tmp/easy-stun-progress
 echo "  ✓ 内存临时目录已清理"
 
 # 清理系统覆盖层文件（仅限本插件命名空间）
@@ -1424,7 +1948,7 @@ echo "  ✓ 日志文件已清理"
 
 # 清理临时文件
 echo "  - 清理临时文件..."
-rm -f /tmp/easy-stun
+rm -f /tmp/easy-stun /tmp/easy-stun-* /tmp/*easy-stun*
 echo "  ✓ 临时文件已清理"
 
 # 清理开机即启动注入与标志
