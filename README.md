@@ -8,7 +8,6 @@
 
 [![Go](https://img.shields.io/badge/Go-1.20+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![Telegram](https://img.shields.io/badge/Telegram-交流群-0088cc?style=flat&logo=telegram)](https://t.me/+7jcTMePlNVwwZjg1)
-[![Bilibili](https://img.shields.io/badge/Bilibili-隔壁小王-00A1D6?style=flat&logo=bilibili)](https://space.bilibili.com/416291500)
 
 </div>
 
