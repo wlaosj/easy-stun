@@ -188,6 +188,6 @@ Easy-Stun：https://your-service.com      ✅ 简洁、安全、永远不变
 
 **💬 遇到问题？加入 Telegram 群一起交流！**
 
-Made with ❤️ by 隔壁小王
+Made with ❤️ by bigv
 
 </div>
