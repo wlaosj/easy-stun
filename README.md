@@ -172,7 +172,6 @@ Easy-Stun：https://your-service.com      ✅ 简洁、安全、永远不变
 ## 🤝 支持与交流
 
 - **Telegram 交流群**：[点击加入](https://t.me/+7jcTMePlNVwwZjg1)
-- **Bilibili 主页**：[@隔壁小王](https://space.bilibili.com/416291500)
 - **问题反馈**：欢迎在 Telegram 群内讨论
 - **使用帮助**：可自行观看B站视频
 ---
