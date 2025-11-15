@@ -154,7 +154,7 @@ Easy-Stun：https://your-service.com      ✅ 简洁、安全、永远不变
 ## 📋 系统要求
 
 - **操作系统**：Linux / Windows / macOS / Unraid
-- **网络环境**：具有公网 IP 的网络（NAT 环境）
+- **网络环境**：无需公网，但是最好是有NAT1的环境的网络，其余网络也可尝试穿透
 - **Cloudflare**：托管的域名（免费版即可）
 - **Go 版本**：1.20+ （仅编译时需要）
 
