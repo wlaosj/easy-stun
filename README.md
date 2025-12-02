@@ -70,8 +70,7 @@ Easy-Stun：https://your-service.com      ✅ 简洁、安全、永远不变
 **手动安装方式：**
 
 1. **下载安装包**：
-   - 下载最新版本：[easy-stun.fpk](https://github.com/wlaosj/easy-stun/blob/main/easy-stun-20251122.fpk)
-   - 或直接下载：[直接下载链接](https://raw.githubusercontent.com/wlaosj/easy-stun/main/easy-stun-20251122.fpk)
+   - 点击进入下载离线安装包：[easy-stun.fpk](https://github.com/wlaosj/easy-stun/releases)
    
 2. **安装应用**：
    - 打开飞牛OS应用中心
