@@ -45,6 +45,21 @@ Easy-Stun：https://your-service.com      ✅ 简洁、安全、永远不变
 
 ## 🚀 快速开始
 
+### Docker 用户（推荐）
+
+**一键启动（Host模式）：**
+
+```bash
+docker run -d \
+  --name easy-stun \
+  --network host \
+  --restart unless-stopped \
+  -v /mnt/easy-stun/data:/app/data \
+  qq918652593/easy-stun:latest
+```
+
+> 更多 Docker 配置（Compose、Bridge 模式等）请查看 [Docker Hub 页面](https://hub.docker.com/r/qq918652593/easy-stun)。
+
 ### Unraid 用户（推荐）
 
 **安装步骤：**
