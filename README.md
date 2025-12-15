@@ -6,6 +6,7 @@
 
 *让你的内网服务像云服务一样被访问*
 
+[![Docker Pulls](https://img.shields.io/docker/pulls/qq918652593/easy-stun?style=flat&logo=docker)](https://hub.docker.com/r/qq918652593/easy-stun)
 [![Go](https://img.shields.io/badge/Go-1.20+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![Telegram](https://img.shields.io/badge/Telegram-交流群-0088cc?style=flat&logo=telegram)](https://t.me/+7jcTMePlNVwwZjg1)
 
@@ -15,8 +16,7 @@
 
 > **⚠️ Beta 测试版本**
 > 
-> 当前版本为 Beta 测试阶段，功能持续优化中。使用过程中如遇到 Bug 或问题属于正常现象，欢迎加入 Telegram 群反馈，也可关注B站反馈，帮助我们改进！
-
+> 当前版本为 Beta 测试阶段，功能持续优化中。使用过程中如遇到 Bug 或问题属于正常现象，欢迎加入 Telegram 群反馈。
 
 ---
 
