@@ -45,16 +45,26 @@ Easy-Stun：https://your-service.com      ✅ 简洁、安全、永远不变
 **一键启动（Host模式）：**
 
 *Easy-Stun 需要进行 NAT 探测，使用 Host 模式能直接使用宿主机网络栈，穿透成功率最高。*
-*默认端口为 18080，如需修改（例如改为 8888），请修改命令末尾的 `-web-addr :8888` 参数*
 
 ```bash
 docker run -d \
   --name easy-stun \
   --network host \
   --restart unless-stopped \
-  -v /mnt/easy-stun/data:/app/data \
+  -v /mnt/user/appdata/easystun:/app/data \
+  qq918652593/easy-stun:latest
+```
+
+**自定义端口（Host模式）：**
+如需修改默认的 `18080` 端口（例如改为 `8888`），请使用完整启动命令覆盖默认配置：
+```bash
+docker run -d \
+  --name easy-stun \
+  --network host \
+  --restart unless-stopped \
+  -v /mnt/user/appdata/easystun:/app/data \
   qq918652593/easy-stun:latest \
-  -web-addr :18080
+  -web -web-addr :8888
 ```
 
 > 更多 Docker 配置（Compose、Bridge 模式等）请查看 [Docker Hub 页面](https://hub.docker.com/r/qq918652593/easy-stun)。
